@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  project:
+    name: YYproject (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: yyproject-${{ matrix.os }}
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo build --workspace --release --locked
+      - name: MCP over real stdin/stdout
+        shell: bash
+        run: |
+          EXE=target/release/yyproject
+          if [ "$RUNNER_OS" = Windows ]; then EXE="$EXE.exe"; fi
+          python tools/test_mcp.py "$EXE"
+      - name: Native Windows views, dialogs, resizing and kanban
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $taskExe = (Resolve-Path target/release/yyprojectw.exe).Path
+          $taskDir = Join-Path (Get-Location) 'target/ui-smoke'
+          $taskProcess = Start-Process -FilePath $taskExe -ArgumentList '--ui-smoke-test',"`"$taskDir`"" -WindowStyle Hidden -PassThru
+          if (-not $taskProcess.WaitForExit(60000)) { $taskProcess.Kill(); $taskProcess.WaitForExit(); throw 'yyproject UI smoke timed out' }
+          if ($taskProcess.ExitCode -ne 0) { Get-Content "$taskDir/error.txt" -ErrorAction SilentlyContinue; throw 'yyproject UI smoke failed' }
+          Get-Content "$taskDir/ui-smoke.txt"
+      - uses: actions/upload-artifact@v4
+        if: failure() && runner.os == 'Windows'
+        with:
+          name: yyproject-ui-diagnostics
+          path: target/ui-smoke/
+      - name: Package binaries, help and notices
+        run: python tools/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yyproject-${{ runner.os }}-x64
+          path: target/dist/*
+          if-no-files-found: error

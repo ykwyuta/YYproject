@@ -1,0 +1,29 @@
+[package]
+name = "yyproject"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+default-run = "yyproject"
+
+[[bin]]
+name = "yyproject"
+path = "src/main.rs"
+
+[[bin]]
+name = "yyprojectw"
+path = "src/gui_main.rs"
+
+[dependencies]
+yy-project.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+yy-ui-win = { git = "https://github.com/ykwyuta/yyeditor", rev = "a5c7fa2a43ec6ff531426610133688ff3875d3ff", features = ["help"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Controls_Dialogs", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile.workspace = true
