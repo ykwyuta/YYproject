@@ -333,6 +333,37 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
     unsafe {
         let _ = UpdateWindow(h);
     }
+    // At 96 DPI both fixture cards fit in the 640x480 window. Derive a
+    // shorter viewport from the actual layout so edge scrolling has overflow
+    // at every DPI, rather than waiting for an impossible scroll position.
+    let shrink = APP.with(|a| {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        (s.body.bottom - s.body.top - s.content.1 + s.px(48)).max(0)
+    });
+    if shrink > 0 {
+        let mut frame = RECT::default();
+        unsafe {
+            GetWindowRect(h, &mut frame)?;
+            SetWindowPos(
+                h,
+                None,
+                0,
+                0,
+                frame.right - frame.left,
+                frame.bottom - frame.top - shrink,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            )?;
+            let _ = UpdateWindow(h);
+        }
+    }
+    pump_until(|| {
+        APP.with(|a| {
+            let a = a.borrow();
+            let s = a.as_ref().unwrap();
+            s.body.bottom - s.body.top > s.px(30) && s.content.1 > s.body.bottom - s.body.top
+        })
+    })?;
     APP.with(|a| -> Result<()> {
         let mut a = a.borrow_mut();
         let s = a.as_mut().unwrap();
