@@ -36,14 +36,15 @@ fn tools() -> Value {
             "Atomically change a project using expected_revision from project_get. A conflict never overwrites GUI or other AI edits. Task effort is hours; duration_days is working days. Master kinds: category, assignee, holiday. New task/master id is 0. Task status: todo, doing, blocked, done, cancelled; kind: task or issue. Omitted task fields use defaults; read existing task before replacing it.",
             schema(
                 json!({"project_id":id,"expected_revision":id,"actor":{"type":"string"},"change":{"oneOf":[
-                    schema(json!({"operation":{"const":"save_task"},"task":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"title":{"type":"string"},"description":{"type":"string"},"kind":{"enum":["task","issue"]},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"assignee":{"type":["integer","null"]},"category":{"type":["integer","null"]},"start":{"type":["string","null"],"format":"date"},"due":{"type":["string","null"],"format":"date"},"duration_days":{"type":"integer","minimum":0,"maximum":3660},"estimate":{"type":"number","minimum":0},"progress":{"type":"integer","minimum":0,"maximum":100}},"required":["title"],"additionalProperties":false}}),&["operation","task"]),
+                    schema(json!({"operation":{"const":"save_task"},"task":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"title":{"type":"string"},"description":{"type":"string"},"kind":{"enum":["task","issue"]},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"assignee":{"type":["integer","null"]},"category":{"type":["integer","null"]},"start":{"type":["string","null"],"format":"date"},"due":{"type":["string","null"],"format":"date"},"duration_days":{"type":"integer","minimum":0,"maximum":3660},"estimate":{"type":"number","minimum":0},"progress":{"type":"integer","minimum":0,"maximum":100},"priority":{"enum":["low","normal","high","critical"]},"severity":{"enum":["unspecified","minor","major","critical"]},"review":{"enum":["not_required","pending","approved","changes_requested"]},"reviewer":{"type":["integer","null"]},"review_note":{"type":"string"},"include_in_effort":{"type":"boolean","default":true},"related_tasks":{"type":"array","items":id,"uniqueItems":true,"maxItems":1000},"archived":{"type":"boolean","default":false}},"required":["title"],"additionalProperties":false}}),&["operation","task"]),
                     schema(json!({"operation":{"const":"remove_task"},"id":id}),&["operation","id"]),
+                    schema(json!({"operation":{"const":"restore_task"},"id":id}),&["operation","id"]),
                     schema(json!({"operation":{"const":"save_master"},"master":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"name":{"type":"string"},"kind":{"enum":["category","assignee","holiday"]},"date":{"type":["string","null"],"format":"date"}},"required":["id","name","kind"],"additionalProperties":false}}),&["operation","master"]),
                     schema(json!({"operation":{"const":"remove_master"},"id":id}),&["operation","id"]),
                     schema(json!({"operation":{"const":"add_dependency"},"dependency":{"type":"object","properties":{"predecessor":id,"successor":id,"lag_days":{"type":"integer","minimum":0,"maximum":3660}},"required":["predecessor","successor"],"additionalProperties":false}}),&["operation","dependency"]),
                     schema(json!({"operation":{"const":"remove_dependency"},"predecessor":id,"successor":id}),&["operation","predecessor","successor"]),
                     schema(json!({"operation":{"const":"rename"},"name":{"type":"string"},"start":date,"finish":date}),&["operation","name","start","finish"]),
-                    schema(json!({"operation":{"const":"schedule"}}),&["operation"]),
+                    schema(json!({"operation":{"const":"schedule"},"allow_overrun":{"type":"boolean","default":false}}),&["operation"]),
                     schema(json!({"operation":{"const":"capture"},"day":date}),&["operation","day"])
                 ]}}),
                 &["project_id", "expected_revision", "actor", "change"],
@@ -51,10 +52,25 @@ fn tools() -> Value {
             false,
         ),
         (
-            "task_list",
-            "Page tasks/issues. Optional status and kind filters. Page size is capped at 200.",
+            "removal_preview",
+            "Read-only archive impact: task, retained dependencies and related issues. remove_task archives without erasing data; restore_task reactivates it. Recheck expected_revision before applying.",
             schema(
-                json!({"project_id":id,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":200},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"kind":{"enum":["task","issue"]}}),
+                json!({"project_id":id,"task_id":id}),
+                &["project_id", "task_id"],
+            ),
+            true,
+        ),
+        (
+            "schedule_preview",
+            "Read-only schedule differences and task IDs exceeding project finish. Apply schedule with expected_revision after review; allow_overrun defaults to false.",
+            schema(json!({"project_id":id}), &["project_id"]),
+            true,
+        ),
+        (
+            "task_list",
+            "Page tasks/issues. Optional query, status, kind, assignee, category, unassigned, incomplete, overdue_before, priority, severity, review and archived filters (AND). overdue_before excludes done/cancelled. archived defaults to false; true selects archived items only. Page size is capped at 200.",
+            schema(
+                json!({"project_id":id,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":200},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"kind":{"enum":["task","issue"]},"query":{"type":"string"},"assignee":id,"category":id,"unassigned":{"type":"boolean"},"incomplete":{"type":"boolean"},"overdue_before":date,"priority":{"enum":["low","normal","high","critical"]},"severity":{"enum":["unspecified","minor","major","critical"]},"review":{"enum":["not_required","pending","approved","changes_requested"]},"archived":{"type":"boolean","default":false}}),
                 &["project_id"],
             ),
             true,
@@ -79,8 +95,25 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
     }
     let allowed: &[&str] = match name {
         "project_list" => &[],
-        "project_get" => &["project_id"],
-        "task_list" => &["project_id", "offset", "limit", "status", "kind"],
+        "project_get" | "schedule_preview" => &["project_id"],
+        "removal_preview" => &["project_id", "task_id"],
+        "task_list" => &[
+            "project_id",
+            "offset",
+            "limit",
+            "status",
+            "kind",
+            "query",
+            "assignee",
+            "category",
+            "unassigned",
+            "incomplete",
+            "overdue_before",
+            "priority",
+            "severity",
+            "review",
+            "archived",
+        ],
         "audit_list" => &["project_id", "after"],
         "project_create" => &["name", "start", "finish", "actor"],
         "project_change" => &["project_id", "expected_revision", "actor", "change"],
@@ -111,6 +144,15 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
     if let Some(s) = args.get("kind") {
         serde_json::from_value::<yy_project::Kind>(s.clone())?;
     }
+    if let Some(v) = args.get("priority") {
+        serde_json::from_value::<yy_project::Priority>(v.clone())?;
+    }
+    if let Some(v) = args.get("severity") {
+        serde_json::from_value::<yy_project::Severity>(v.clone())?;
+    }
+    if let Some(v) = args.get("review") {
+        serde_json::from_value::<yy_project::ReviewState>(v.clone())?;
+    }
     let id = || {
         args["project_id"]
             .as_i64()
@@ -122,6 +164,15 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
             json!({"projects":store.list()?.into_iter().map(|(id,name,revision)|json!({"id":id,"name":name,"revision":revision})).collect::<Vec<_>>()})
         }
         "project_get" => serde_json::to_value(store.get(id()?)?)?,
+        "schedule_preview" => serde_json::to_value(store.get(id()?)?.schedule_preview()?)?,
+        "removal_preview" => serde_json::to_value(
+            store.get(id()?)?.removal_preview(
+                args["task_id"]
+                    .as_i64()
+                    .filter(|n| *n > 0)
+                    .ok_or("task_id must be positive")?,
+            )?,
+        )?,
         "project_create" => {
             #[derive(serde::Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -155,16 +206,24 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
             let p = store.get(id()?)?;
             let offset = args["offset"].as_u64().unwrap_or(0).min(usize::MAX as u64) as usize;
             let limit = args["limit"].as_u64().unwrap_or(100).clamp(1, 200) as usize;
+            for key in ["assignee", "category"] {
+                if args
+                    .get(key)
+                    .is_some_and(|v| v.as_i64().is_none_or(|id| id <= 0))
+                {
+                    return Err("Master IDs must be positive integers".into());
+                }
+            }
+            let mut selection = args.clone();
+            let object = selection.as_object_mut().unwrap();
+            for key in ["project_id", "offset", "limit"] {
+                object.remove(key);
+            }
+            let filter: yy_project::TaskFilter = serde_json::from_value(selection)?;
             let rows = p
                 .tasks
                 .iter()
-                .filter(|t| {
-                    args.get("status")
-                        .is_none_or(|v| serde_json::to_value(t.status).is_ok_and(|s| s == *v))
-                        && args
-                            .get("kind")
-                            .is_none_or(|v| serde_json::to_value(t.kind).is_ok_and(|s| s == *v))
-                })
+                .filter(|t| filter.matches(t))
                 .collect::<Vec<_>>();
             json!({"revision":p.revision,"total":rows.len(),"tasks":rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>()})
         }
@@ -331,7 +390,7 @@ mod tests {
         assert_eq!(out.len(), 8);
         assert_eq!(out[0]["error"]["code"], -32000);
         assert_eq!(out[1]["result"]["protocolVersion"], "2025-11-25");
-        assert_eq!(out[2]["result"]["tools"].as_array().unwrap().len(), 6);
+        assert_eq!(out[2]["result"]["tools"].as_array().unwrap().len(), 8);
         assert_eq!(out[4]["result"]["structuredContent"]["revision"], 2);
         assert_eq!(out[5]["result"]["isError"], true);
         assert_eq!(

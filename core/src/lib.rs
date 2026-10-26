@@ -75,7 +75,7 @@ pub struct Master {
     #[serde(default)]
     pub date: Option<NaiveDate>,
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Task {
     pub id: i64,
@@ -90,14 +90,156 @@ pub struct Task {
     pub duration_days: u32,
     pub estimate: f64,
     pub progress: u8,
+    pub priority: Priority,
+    pub severity: Severity,
+    pub review: ReviewState,
+    pub reviewer: Option<i64>,
+    pub review_note: String,
+    pub include_in_effort: bool,
+    pub related_tasks: Vec<i64>,
+    pub archived: bool,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Priority {
+    Low,
+    #[default]
+    Normal,
+    High,
+    Critical,
+}
+impl Priority {
+    pub const ALL: [Self; 4] = [Self::Low, Self::Normal, Self::High, Self::Critical];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Low => "低",
+            Self::Normal => "通常",
+            Self::High => "高",
+            Self::Critical => "最優先",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    #[default]
+    Unspecified,
+    Minor,
+    Major,
+    Critical,
+}
+impl Severity {
+    pub const ALL: [Self; 4] = [Self::Unspecified, Self::Minor, Self::Major, Self::Critical];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unspecified => "未指定",
+            Self::Minor => "軽微",
+            Self::Major => "重大",
+            Self::Critical => "致命的",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewState {
+    #[default]
+    NotRequired,
+    Pending,
+    Approved,
+    ChangesRequested,
+}
+impl ReviewState {
+    pub const ALL: [Self; 4] = [
+        Self::NotRequired,
+        Self::Pending,
+        Self::Approved,
+        Self::ChangesRequested,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NotRequired => "確認不要",
+            Self::Pending => "確認待ち",
+            Self::Approved => "承認済み",
+            Self::ChangesRequested => "差し戻し",
+        }
+    }
+}
+impl Default for Task {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            title: String::new(),
+            description: String::new(),
+            kind: Kind::Task,
+            status: Status::Todo,
+            assignee: None,
+            category: None,
+            start: None,
+            due: None,
+            duration_days: 0,
+            estimate: 0.,
+            progress: 0,
+            priority: Priority::Normal,
+            severity: Severity::Unspecified,
+            review: ReviewState::NotRequired,
+            reviewer: None,
+            review_note: String::new(),
+            include_in_effort: true,
+            related_tasks: vec![],
+            archived: false,
+        }
+    }
 }
 impl Task {
     pub fn remaining(&self) -> f64 {
-        if matches!(self.status, Status::Done | Status::Cancelled) {
+        if self.archived
+            || !self.include_in_effort
+            || matches!(self.status, Status::Done | Status::Cancelled)
+        {
             0.0
         } else {
             self.estimate * (100 - self.progress) as f64 / 100.0
         }
+    }
+}
+/// Shared task selection for GUI lists and paged MCP queries. Conditions are ANDed.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TaskFilter {
+    pub query: String,
+    pub status: Option<Status>,
+    pub kind: Option<Kind>,
+    pub assignee: Option<i64>,
+    pub category: Option<i64>,
+    pub unassigned: bool,
+    pub incomplete: bool,
+    pub overdue_before: Option<NaiveDate>,
+    pub priority: Option<Priority>,
+    pub severity: Option<Severity>,
+    pub review: Option<ReviewState>,
+    pub archived: bool,
+}
+impl TaskFilter {
+    pub fn matches(&self, t: &Task) -> bool {
+        self.archived == t.archived
+            && self.priority.is_none_or(|p| p == t.priority)
+            && self.severity.is_none_or(|s| s == t.severity)
+            && self.review.is_none_or(|r| r == t.review)
+            && self.status.is_none_or(|s| s == t.status)
+            && self.kind.is_none_or(|k| k == t.kind)
+            && self.assignee.is_none_or(|id| t.assignee == Some(id))
+            && self.category.is_none_or(|id| t.category == Some(id))
+            && (!self.unassigned || t.assignee.is_none())
+            && (!self.incomplete || !matches!(t.status, Status::Done | Status::Cancelled))
+            && self.overdue_before.is_none_or(|day| {
+                !matches!(t.status, Status::Done | Status::Cancelled)
+                    && t.due.is_some_and(|due| due < day)
+            })
+            && (self.query.is_empty()
+                || t.title.to_lowercase().contains(&self.query.to_lowercase())
+                || t.description
+                    .to_lowercase()
+                    .contains(&self.query.to_lowercase()))
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -143,6 +285,9 @@ pub enum Change {
     RemoveTask {
         id: i64,
     },
+    RestoreTask {
+        id: i64,
+    },
     SaveMaster {
         master: Master,
     },
@@ -156,10 +301,36 @@ pub enum Change {
         predecessor: i64,
         successor: i64,
     },
-    Schedule,
+    Schedule {
+        #[serde(default)]
+        allow_overrun: bool,
+    },
     Capture {
         day: NaiveDate,
     },
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RemovalPreview {
+    pub revision: i64,
+    pub task: Task,
+    pub dependencies: Vec<Dependency>,
+    pub related_issue_ids: Vec<i64>,
+}
+/// Read-only planning result. Applying it still requires the observed revision.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SchedulePreview {
+    pub revision: i64,
+    pub changes: Vec<ScheduleDifference>,
+    pub overdue_ids: Vec<i64>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScheduleDifference {
+    pub id: i64,
+    pub title: String,
+    pub old_start: Option<NaiveDate>,
+    pub old_due: Option<NaiveDate>,
+    pub start: Option<NaiveDate>,
+    pub due: Option<NaiveDate>,
 }
 fn next_id(values: impl Iterator<Item = i64>) -> Result<i64> {
     values
@@ -219,6 +390,8 @@ impl Project {
                 || !t.estimate.is_finite()
                 || !(0.0..=1e9).contains(&t.estimate)
                 || t.description.len() > 1024 * 1024
+                || t.review_note.len() > 65536
+                || t.related_tasks.len() > 1000
                 || t.duration_days > 3660
             {
                 return Err(invalid("Invalid progress, effort, description or duration"));
@@ -228,6 +401,7 @@ impl Project {
             }
             for (id, kind) in [
                 (t.assignee, MasterKind::Assignee),
+                (t.reviewer, MasterKind::Assignee),
                 (t.category, MasterKind::Category),
             ] {
                 if id.is_some_and(|id| masters.get(&id) != Some(&kind)) {
@@ -235,8 +409,74 @@ impl Project {
                 }
             }
         }
+        let task_kinds: BTreeMap<_, _> = self.tasks.iter().map(|t| (t.id, t.kind)).collect();
+        for t in &self.tasks {
+            if t.review != ReviewState::NotRequired && t.reviewer.is_none() {
+                return Err(invalid("Review requires a reviewer"));
+            }
+            if matches!(
+                t.review,
+                ReviewState::Approved | ReviewState::ChangesRequested
+            ) && t.review_note.trim().is_empty()
+            {
+                return Err(invalid("Approval or change request requires a review note"));
+            }
+            if t.status == Status::Done
+                && matches!(
+                    t.review,
+                    ReviewState::Pending | ReviewState::ChangesRequested
+                )
+            {
+                return Err(invalid("Pending or rejected review cannot be completed"));
+            }
+            let mut related = BTreeSet::new();
+            if !t.related_tasks.is_empty() && t.kind != Kind::Issue {
+                return Err(invalid("Only issues can link to response tasks"));
+            }
+            for id in &t.related_tasks {
+                if *id == t.id || !related.insert(*id) || task_kinds.get(id) != Some(&Kind::Task) {
+                    return Err(invalid(
+                        "Issue refers to a missing, duplicate or incompatible response task",
+                    ));
+                }
+            }
+        }
         self.topological()?;
         Ok(())
+    }
+    pub fn active_dependencies(&self) -> impl Iterator<Item = &Dependency> {
+        let active: BTreeSet<_> = self
+            .tasks
+            .iter()
+            .filter(|t| !t.archived)
+            .map(|t| t.id)
+            .collect();
+        self.dependencies
+            .iter()
+            .filter(move |d| active.contains(&d.predecessor) && active.contains(&d.successor))
+    }
+    pub fn removal_preview(&self, id: i64) -> Result<RemovalPreview> {
+        let task = self
+            .tasks
+            .iter()
+            .find(|t| t.id == id && !t.archived)
+            .ok_or_else(|| invalid("Active task does not exist"))?;
+        Ok(RemovalPreview {
+            revision: self.revision,
+            task: task.clone(),
+            dependencies: self
+                .dependencies
+                .iter()
+                .filter(|d| d.predecessor == id || d.successor == id)
+                .cloned()
+                .collect(),
+            related_issue_ids: self
+                .tasks
+                .iter()
+                .filter(|t| t.related_tasks.contains(&id))
+                .map(|t| t.id)
+                .collect(),
+        })
     }
     pub fn topological(&self) -> Result<Vec<i64>> {
         let mut counts: BTreeMap<i64, usize> = self.tasks.iter().map(|t| (t.id, 0)).collect();
@@ -299,11 +539,20 @@ impl Project {
             .map(|(i, t)| (t.id, i))
             .collect();
         let mut incoming: BTreeMap<i64, Vec<Dependency>> = BTreeMap::new();
-        for d in &self.dependencies {
+        for d in self.active_dependencies() {
             incoming.entry(d.successor).or_default().push(d.clone());
         }
         for id in order {
             let i = index[&id];
+            if self.tasks[i].archived {
+                continue;
+            }
+            if matches!(self.tasks[i].status, Status::Done | Status::Cancelled)
+                && self.tasks[i].start.is_some()
+                && self.tasks[i].due.is_some()
+            {
+                continue;
+            }
             let mut start =
                 calendar.workday(self.tasks[i].start.unwrap_or(self.start).max(self.start))?;
             for d in incoming.get(&id).into_iter().flatten() {
@@ -321,8 +570,43 @@ impl Project {
         }
         Ok(())
     }
+    pub fn schedule_preview(&self) -> Result<SchedulePreview> {
+        let mut scheduled = self.clone();
+        scheduled.schedule()?;
+        scheduled.validate()?;
+        Ok(SchedulePreview {
+            revision: self.revision,
+            changes: self
+                .tasks
+                .iter()
+                .zip(&scheduled.tasks)
+                .filter(|(old, new)| old.start != new.start || old.due != new.due)
+                .map(|(old, new)| ScheduleDifference {
+                    id: old.id,
+                    title: old.title.clone(),
+                    old_start: old.start,
+                    old_due: old.due,
+                    start: new.start,
+                    due: new.due,
+                })
+                .collect(),
+            overdue_ids: scheduled
+                .tasks
+                .iter()
+                .filter(|t| {
+                    !t.archived
+                        && !matches!(t.status, Status::Done | Status::Cancelled)
+                        && t.due.is_some_and(|d| d > self.finish)
+                })
+                .map(|t| t.id)
+                .collect(),
+        })
+    }
     pub fn snapshot(&self, day: NaiveDate) -> Snapshot {
-        let active = self.tasks.iter().filter(|t| t.status != Status::Cancelled);
+        let active = self
+            .tasks
+            .iter()
+            .filter(|t| !t.archived && t.include_in_effort && t.status != Status::Cancelled);
         let scope = active.clone().map(|t| t.estimate).sum();
         let completed = active
             .clone()
@@ -356,6 +640,32 @@ impl Project {
             }
             Change::SaveTask { task } => {
                 let mut task = task.clone();
+                let previous = self.tasks.iter().find(|t| t.id == task.id);
+                if previous.is_some_and(|t| t.status == Status::Done)
+                    && !matches!(task.status, Status::Done | Status::Cancelled)
+                    && task.progress >= 100
+                {
+                    return Err(invalid(
+                        "Reopening a completed task requires progress below 100%",
+                    ));
+                }
+                if task.status == Status::Done && previous.is_none_or(|t| t.status != Status::Done)
+                {
+                    let blocked: Vec<_> = self
+                        .dependencies
+                        .iter()
+                        .filter(|d| d.successor == task.id)
+                        .filter_map(|d| self.tasks.iter().find(|t| t.id == d.predecessor))
+                        .filter(|t| !t.archived && t.status != Status::Done)
+                        .map(|t| format!("#{} {}", t.id, t.title))
+                        .collect();
+                    if !blocked.is_empty() {
+                        return Err(invalid(format!(
+                            "Complete predecessors first: {}",
+                            blocked.join(", ")
+                        )));
+                    }
+                }
                 if task.status == Status::Done {
                     task.progress = 100;
                 }
@@ -373,12 +683,20 @@ impl Project {
                 }
             }
             Change::RemoveTask { id } => {
-                if !self.tasks.iter().any(|t| t.id == *id) {
-                    return Err(invalid("Task does not exist"));
-                }
-                self.tasks.retain(|t| t.id != *id);
-                self.dependencies
-                    .retain(|d| d.predecessor != *id && d.successor != *id);
+                self.removal_preview(*id)?;
+                self.tasks
+                    .iter_mut()
+                    .find(|t| t.id == *id)
+                    .unwrap()
+                    .archived = true;
+            }
+            Change::RestoreTask { id } => {
+                let task = self
+                    .tasks
+                    .iter_mut()
+                    .find(|t| t.id == *id && t.archived)
+                    .ok_or_else(|| invalid("Archived task does not exist"))?;
+                task.archived = false;
             }
             Change::SaveMaster { master } => {
                 let mut master = master.clone();
@@ -413,7 +731,16 @@ impl Project {
                     return Err(invalid("Dependency does not exist"));
                 }
             }
-            Change::Schedule => self.schedule()?,
+            Change::Schedule { allow_overrun } => {
+                let preview = self.schedule_preview()?;
+                if !allow_overrun && !preview.overdue_ids.is_empty() {
+                    return Err(invalid(format!(
+                        "Schedule exceeds project finish for task IDs {:?}; inspect schedule_preview and explicitly allow_overrun",
+                        preview.overdue_ids
+                    )));
+                }
+                self.schedule()?;
+            }
             Change::Capture { day } => self.capture(*day),
         }
         self.validate()?;
@@ -425,12 +752,21 @@ impl Project {
     pub fn network(&self) -> Result<BTreeMap<i64, (usize, usize)>> {
         let mut layers: BTreeMap<i64, usize> = BTreeMap::new();
         let mut incoming: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
-        for d in &self.dependencies {
+        for d in self.active_dependencies() {
             incoming.entry(d.successor).or_default().push(d.predecessor);
         }
         let mut slots: BTreeMap<usize, usize> = BTreeMap::new();
         let mut result = BTreeMap::new();
+        let active: BTreeSet<_> = self
+            .tasks
+            .iter()
+            .filter(|t| !t.archived)
+            .map(|t| t.id)
+            .collect();
         for id in self.topological()? {
+            if !active.contains(&id) {
+                continue;
+            }
             let layer = incoming
                 .get(&id)
                 .into_iter()
@@ -517,8 +853,8 @@ impl Store {
             if tables != 0 {
                 return Err(invalid("This SQLite file is not a yyproject database"));
             }
-            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=1; COMMIT;")?;
-        } else if application != 1499025482 || version != 1 {
+            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=2; COMMIT;")?;
+        } else if application != 1499025482 || !matches!(version, 1 | 2) {
             return Err(invalid("Unsupported yyproject database format"));
         }
         if !read_only {
@@ -605,6 +941,7 @@ impl Store {
                 "{\"operation\":\"create\"}"
             ],
         )?;
+        tx.pragma_update(None, "user_version", 2)?;
         tx.commit()?;
         Ok(p)
     }
@@ -656,6 +993,7 @@ impl Store {
                 serde_json::to_string(change)?
             ],
         )?;
+        tx.pragma_update(None, "user_version", 2)?;
         tx.commit()?;
         Ok(p)
     }

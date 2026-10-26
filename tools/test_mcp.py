@@ -1,6 +1,7 @@
 """Exercise the real stdio executable with bounded waits and isolated SQLite files."""
 from contextlib import closing
 import json
+import shutil
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -46,7 +47,7 @@ def main():
             tool(7, "audit_list", {"project_id": 1})]
         rows = {row["id"]: row for row in exchange(executable, database, messages)}
         assert rows[1]["result"]["protocolVersion"] == "2025-11-25"
-        assert len(rows[2]["result"]["tools"]) == 6
+        assert len(rows[2]["result"]["tools"]) == 8
         assert rows[4]["result"]["structuredContent"]["revision"] == 2
         assert rows[5]["result"]["isError"]
         assert rows[6]["result"]["structuredContent"]["tasks"][0]["title"] == "実プロセスから保存"
@@ -57,6 +58,41 @@ def main():
         with closing(sqlite3.connect(database)) as connection:
             revision, document = connection.execute("SELECT revision,document FROM projects WHERE id=1").fetchone()
             assert revision == 2 and len(json.loads(document)["tasks"]) == 1
+        preview = exchange(executable,database,initialize()+[tool(30,"removal_preview",{"project_id":1,"task_id":1})],True)[-1]["result"]["structuredContent"]
+        assert preview["revision"]==2 and preview["task"]["id"]==1
+        operations=exchange(executable,database,initialize()+[
+            tool(31,"project_change",{"project_id":1,"expected_revision":2,"actor":"archive","change":{"operation":"remove_task","id":1}}),
+            tool(32,"task_list",{"project_id":1}),
+            tool(33,"task_list",{"project_id":1,"archived":True}),
+            tool(34,"project_change",{"project_id":1,"expected_revision":3,"actor":"restore","change":{"operation":"restore_task","id":1}})])
+        results={r["id"]:r["result"]["structuredContent"] for r in operations if r["id"] >= 31}
+        assert results[31]["tasks"][0]["archived"]
+        assert results[32]["total"]==0 and results[33]["total"]==1
+        assert not results[34]["tasks"][0]["archived"] and results[34]["revision"]==4
+        print("Read-only archive impact and actual MCP archive/filter/restore: OK")
+        demo = Path(directory) / "YY-demo.sqlite3"
+        shutil.copy2(Path(__file__).resolve().parents[1] / "demo/yyproject-demo.sqlite3", demo)
+        demo_rows = {row["id"]: row for row in exchange(executable, demo, initialize() + [
+            tool(10, "project_get", {"project_id": 1}),
+            tool(11, "task_list", {"project_id": 1, "kind": "issue"})], True)}
+        project = demo_rows[10]["result"]["structuredContent"]
+        assert len(project["tasks"]) == 64 and len(project["history"]) == 8
+        assert len(demo_rows[11]["result"]["structuredContent"]["tasks"]) == 16
+        queries = exchange(executable, demo, initialize() + [
+            tool(20, "schedule_preview", {"project_id": 1}),
+            tool(21, "task_list", {"project_id": 1, "query": "[ISS-001]", "kind": "issue"}),
+            tool(22, "task_list", {"project_id": 1, "unassigned": True, "incomplete": True}),
+            tool(23, "task_list", {"project_id": 1, "unassigned": "yes"}),
+            tool(24, "task_list", {"project_id": 1, "assignee": -1}),
+            tool(25, "project_get", {"project_id": 1})], True)
+        results = {row["id"]: row["result"] for row in queries}
+        assert results[20]["structuredContent"]["revision"] == project["revision"]
+        assert results[21]["structuredContent"]["total"] == 1
+        assert results[22]["structuredContent"]["total"] == 2
+        assert results[23]["isError"] and results[24]["isError"]
+        assert results[25]["structuredContent"] == project
+        print("Read-only preview and composed filters, invalid arguments: OK")
+        print("Bundled demo: MCP project and issues: OK")
         print("MCP stdio initialize, discovery, Unicode task persistence, conflict, audit, read-only: OK")
 
 

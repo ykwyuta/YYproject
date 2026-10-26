@@ -19,6 +19,9 @@ def main():
     for source in binaries:
         if not source.is_file():
             raise SystemExit(f"Missing release binary: {source}")
+    demo = root / "demo/yyproject-demo.sqlite3"
+    if not demo.is_file() or any(Path(str(demo) + suffix).exists() for suffix in ("-wal", "-shm")):
+        raise SystemExit("Demo DB is missing or has WAL/SHM sidecars; close demo connections before packaging")
     output = root / "target/dist"
     output.mkdir(parents=True, exist_ok=True)
     name = f"yyproject-{system}-{arch}"
@@ -27,8 +30,8 @@ def main():
         folder.mkdir()
         for source in binaries:
             shutil.copy2(source, folder / source.name)
-        for directory in ("docs", "help", "licenses"):
-            shutil.copytree(root / directory, folder / directory)
+        for directory in ("docs", "help", "licenses", "demo", "tools"):
+            shutil.copytree(root / directory, folder / directory, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         for filename in ("README.md", "NOTICE.md", "COPYING", "COPYING.EXCEPTION"):
             shutil.copy2(root / filename, folder / filename)
         archive = shutil.make_archive(str(output / name), "zip" if windows else "gztar", temporary, name)

@@ -17,6 +17,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 mod smoke;
 thread_local! {static SMOKE:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 thread_local! {static SMOKE_ERRORS:RefCell<Vec<String>>=const{RefCell::new(Vec::new())};}
+thread_local! {static SMOKE_CANCEL_FORM:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 const AUTO_FORM: u32 = WM_APP + 17;
 const VIEWS: [&str; 8] = [
     "カンバン",
@@ -41,6 +42,7 @@ struct State {
     projects: Vec<(i64, String, i64)>,
     project: Option<Project>,
     view: usize,
+    filter: TaskFilter,
     master_kind: MasterKind,
     selected: Option<i64>,
     x: i32,
@@ -202,6 +204,7 @@ struct Field {
     choices: Vec<(String, String)>,
     page: usize,
     multi: bool,
+    read_only: bool,
 }
 fn field(name: &str, value: impl ToString, page: usize) -> Field {
     Field {
@@ -210,6 +213,7 @@ fn field(name: &str, value: impl ToString, page: usize) -> Field {
         choices: vec![],
         page,
         multi: false,
+        read_only: false,
     }
 }
 fn choice(name: &str, value: impl ToString, choices: Vec<(String, String)>, page: usize) -> Field {
@@ -324,6 +328,51 @@ unsafe extern "system" fn form_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LR
             let f = &mut *ptr;
             match m {
                 AUTO_FORM if SMOKE.with(|s| s.get()) => {
+                    if SMOKE_CANCEL_FORM.with(|s| s.replace(false)) {
+                        let _ = PostMessageW(Some(h), WM_COMMAND, WPARAM(2), LPARAM(0));
+                        return LRESULT(0);
+                    }
+                    let pages: std::collections::BTreeSet<_> =
+                        f.fields.iter().map(|field| field.page).collect();
+                    for page in pages {
+                        if let Some(tabs) = f.tabs
+                            && send(tabs, TCM_GETITEMCOUNT, 0, 0).0 <= page as isize
+                        {
+                            SMOKE_ERRORS.with(|e| {
+                                e.borrow_mut()
+                                    .push("Form page is inaccessible from tabs".into())
+                            });
+                        }
+                        f.page = page;
+                        f.layout(h);
+                        let mut area = RECT::default();
+                        let _ = GetClientRect(h, &mut area);
+                        let mut origin = POINT::default();
+                        let _ = ClientToScreen(h, &mut origin);
+                        for (field, (_, edit)) in f
+                            .fields
+                            .iter()
+                            .zip(&f.controls)
+                            .filter(|(field, _)| field.page == page)
+                        {
+                            let mut bounds = RECT::default();
+                            let _ = GetWindowRect(*edit, &mut bounds);
+                            if bounds.left < origin.x
+                                || bounds.top < origin.y
+                                || bounds.right > origin.x + area.right
+                                || bounds.bottom > origin.y + area.bottom
+                            {
+                                SMOKE_ERRORS.with(|e| {
+                                    e.borrow_mut().push(format!(
+                                        "Form field outside client bounds: {}",
+                                        field.name
+                                    ))
+                                });
+                            }
+                        }
+                    }
+                    f.page = 0;
+                    f.layout(h);
                     for (field, (_, edit)) in f.fields.iter().zip(&f.controls) {
                         let value = match field.name.as_str() {
                             "件名" => Some(if field.value == "UI-created-task" {
@@ -332,9 +381,24 @@ unsafe extern "system" fn form_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LR
                                 "UI-created-task"
                             }),
                             "名前" => Some("UI-created-master"),
+                            "件名・説明を検索" => Some("[ISS-001]"),
+                            "再開後の進捗（0〜99%）" => Some("40"),
                             "予定工数（時間）" => Some("8"),
                             _ => None,
                         };
+                        if field.name == "優先度" && field.value == "normal" {
+                            send(*edit, CB_SETCURSEL, 2, 0);
+                        }
+                        if field.name == "適用の確認" {
+                            send(*edit, CB_SETCURSEL, 1, 0);
+                        }
+                        if field.read_only
+                            && GetWindowLongW(*edit, GWL_STYLE) as u32 & ES_READONLY as u32 == 0
+                        {
+                            SMOKE_ERRORS.with(|errors| {
+                                errors.borrow_mut().push("Preview was editable".into())
+                            });
+                        }
                         if let Some(value) = value {
                             let _ = SetWindowTextW(*edit, &HSTRING::from(value));
                         }
@@ -456,7 +520,17 @@ fn form(
             )
             .ok()?;
             send(t, WM_SETFONT, font.0 as usize, 0);
-            for (i, name) in ["基本情報", "日程・進捗", "説明"].iter().enumerate() {
+            for (i, name) in [
+                "基本情報",
+                "日程・進捗",
+                "説明",
+                "分類・確認",
+                "確認メモ",
+                "集計・関連",
+            ]
+            .iter()
+            .enumerate()
+            {
                 let mut value: Vec<_> = name.encode_utf16().chain(Some(0)).collect();
                 let item = TCITEMW {
                     mask: TCIF_TEXT,
@@ -487,6 +561,11 @@ fn form(
                 WS_CHILD
                     | WS_BORDER
                     | WS_TABSTOP
+                    | WINDOW_STYLE(if item.read_only {
+                        ES_READONLY as u32
+                    } else {
+                        0
+                    })
                     | WINDOW_STYLE(if item.multi {
                         ES_MULTILINE as u32 | ES_AUTOVSCROLL as u32 | WS_VSCROLL.0
                     } else {
@@ -525,7 +604,11 @@ fn form(
                 send(
                     edit,
                     EM_SETLIMITTEXT,
-                    if item.multi { 65536 } else { 4096 },
+                    if item.multi {
+                        item.value.encode_utf16().count().max(65536)
+                    } else {
+                        4096
+                    },
                     0,
                 );
             } else {
@@ -611,6 +694,18 @@ fn date(s: &str) -> std::result::Result<chrono::NaiveDate, String> {
     s.parse()
         .map_err(|_| "日付はYYYY-MM-DDで指定してください".into())
 }
+fn related_ids(value: &str) -> std::result::Result<Vec<i64>, String> {
+    value
+        .split(|c: char| c == ',' || c == '、' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.parse::<i64>()
+                .ok()
+                .filter(|id| *id > 0)
+                .ok_or_else(|| "対応タスクは正のIDをカンマ区切りで指定してください".into())
+        })
+        .collect()
+}
 fn task_values(v: &[String]) -> std::result::Result<(), String> {
     if v[0].trim().is_empty() {
         return Err("件名を入力してください".into());
@@ -637,6 +732,21 @@ fn task_values(v: &[String]) -> std::result::Result<(), String> {
     {
         return Err("期間は0～3660営業日、工数は0以上、進捗は0～100にしてください".into());
     }
+    if v.len() > 17 {
+        related_ids(&v[17])?;
+        if v[15].len() > 65536 {
+            return Err("確認メモはUTF-8で65536バイト以内にしてください".into());
+        }
+        if v[13] != "not_required" && v[14].is_empty() {
+            return Err("レビューには確認者が必要です".into());
+        }
+        if matches!(v[13].as_str(), "approved" | "changes_requested") && v[15].trim().is_empty() {
+            return Err("承認・差し戻しには確認メモを入力してください".into());
+        }
+        if v[2] == "done" && matches!(v[13].as_str(), "pending" | "changes_requested") {
+            return Err("確認待ち・差し戻しの項目は完了にできません".into());
+        }
+    }
     Ok(())
 }
 impl State {
@@ -648,10 +758,12 @@ impl State {
         Some((
             p.tasks
                 .iter()
+                .filter(|t| !t.archived)
                 .filter_map(|t| t.start)
                 .fold(p.start, std::cmp::min),
             p.tasks
                 .iter()
+                .filter(|t| !t.archived)
                 .filter_map(|t| t.due)
                 .fold(p.finish, std::cmp::max),
         ))
@@ -697,10 +809,401 @@ impl State {
             .ok_or("プロジェクトを選択してください")?
             .0;
         self.project = Some(self.store.get(id)?);
+        self.filter = TaskFilter::default();
         self.selected = None;
         self.x = 0;
         self.y = 0;
-        self.reload()
+        self.reload()?;
+        self.focus_board();
+        Ok(())
+    }
+    fn focus_board(&mut self) {
+        if self.view == 0 {
+            self.x = self
+                .project
+                .as_ref()
+                .and_then(|p| {
+                    Status::ALL.iter().position(|status| {
+                        p.tasks
+                            .iter()
+                            .any(|t| t.status == *status && self.filter.matches(t))
+                    })
+                })
+                .unwrap_or(0) as i32
+                * self.px(240);
+            self.y = 0;
+            self.layout();
+        }
+    }
+    fn set_status(&mut self, mut task: Task, status: Status) -> Result<()> {
+        if task.status == Status::Done && !matches!(status, Status::Done | Status::Cancelled) {
+            let Some(values) = form(
+                self.hwnd,
+                "完了項目を再開 — 残作業を反映",
+                vec![field("再開後の進捗（0〜99%）", "", 0)],
+                |v| {
+                    if v[0].parse::<u8>().is_ok_and(|n| n < 100) {
+                        Ok(())
+                    } else {
+                        Err("残作業があるため進捗を0〜99%で入力してください".into())
+                    }
+                },
+            ) else {
+                return Ok(());
+            };
+            task.progress = values[0].parse()?;
+        }
+        task.status = status;
+        self.apply(Change::SaveTask { task })
+    }
+    fn filter_form(&mut self) -> Result<()> {
+        let p = self
+            .project
+            .as_ref()
+            .ok_or("プロジェクトを選択してください")?;
+        let master_options = |kind| {
+            std::iter::once((String::new(), "すべて".into()))
+                .chain(
+                    p.masters
+                        .iter()
+                        .filter(move |m| m.kind == kind)
+                        .map(|m| (m.id.to_string(), m.name.clone())),
+                )
+                .collect()
+        };
+        let mut states = vec![(String::new(), "すべて".into())];
+        states.extend(Status::ALL.into_iter().map(|s| {
+            (
+                serde_json::to_value(s).unwrap().as_str().unwrap().into(),
+                s.label().into(),
+            )
+        }));
+        let mode = if self.filter.overdue_before.is_some() {
+            "overdue"
+        } else if self.filter.unassigned {
+            "unassigned"
+        } else if self.filter.incomplete {
+            "incomplete"
+        } else {
+            "all"
+        };
+        if let Some(v) = form(
+            self.hwnd,
+            "絞り込み — カンバン・タスク一覧・課題一覧",
+            vec![
+                field("件名・説明を検索", &self.filter.query, 0),
+                choice(
+                    "担当者",
+                    self.filter
+                        .assignee
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                    master_options(MasterKind::Assignee),
+                    0,
+                ),
+                choice(
+                    "カテゴリ",
+                    self.filter
+                        .category
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                    master_options(MasterKind::Category),
+                    0,
+                ),
+                choice(
+                    "状態",
+                    self.filter
+                        .status
+                        .map(|s| {
+                            serde_json::to_value(s)
+                                .unwrap()
+                                .as_str()
+                                .unwrap()
+                                .to_owned()
+                        })
+                        .unwrap_or_default(),
+                    states,
+                    0,
+                ),
+                choice(
+                    "対象",
+                    mode,
+                    vec![
+                        ("all".into(), "すべて".into()),
+                        ("incomplete".into(), "未完了".into()),
+                        ("overdue".into(), "本日より前に期限超過・未完了".into()),
+                        ("unassigned".into(), "未割当・未完了".into()),
+                    ],
+                    0,
+                ),
+                choice(
+                    "優先度",
+                    self.filter
+                        .priority
+                        .map(|v| {
+                            serde_json::to_value(v)
+                                .unwrap()
+                                .as_str()
+                                .unwrap()
+                                .to_owned()
+                        })
+                        .unwrap_or_default(),
+                    std::iter::once((String::new(), "すべて".into()))
+                        .chain(Priority::ALL.into_iter().map(|v| {
+                            (
+                                serde_json::to_value(v).unwrap().as_str().unwrap().into(),
+                                v.label().into(),
+                            )
+                        }))
+                        .collect(),
+                    0,
+                ),
+                choice(
+                    "重大度",
+                    self.filter
+                        .severity
+                        .map(|v| {
+                            serde_json::to_value(v)
+                                .unwrap()
+                                .as_str()
+                                .unwrap()
+                                .to_owned()
+                        })
+                        .unwrap_or_default(),
+                    std::iter::once((String::new(), "すべて".into()))
+                        .chain(Severity::ALL.into_iter().map(|v| {
+                            (
+                                serde_json::to_value(v).unwrap().as_str().unwrap().into(),
+                                v.label().into(),
+                            )
+                        }))
+                        .collect(),
+                    0,
+                ),
+                choice(
+                    "レビュー",
+                    self.filter
+                        .review
+                        .map(|v| {
+                            serde_json::to_value(v)
+                                .unwrap()
+                                .as_str()
+                                .unwrap()
+                                .to_owned()
+                        })
+                        .unwrap_or_default(),
+                    std::iter::once((String::new(), "すべて".into()))
+                        .chain(ReviewState::ALL.into_iter().map(|v| {
+                            (
+                                serde_json::to_value(v).unwrap().as_str().unwrap().into(),
+                                v.label().into(),
+                            )
+                        }))
+                        .collect(),
+                    0,
+                ),
+            ],
+            |_| Ok(()),
+        ) {
+            self.filter = TaskFilter {
+                query: v[0].clone(),
+                priority: if v[5].is_empty() {
+                    None
+                } else {
+                    Some(serde_json::from_value(serde_json::Value::String(
+                        v[5].clone(),
+                    ))?)
+                },
+                severity: if v[6].is_empty() {
+                    None
+                } else {
+                    Some(serde_json::from_value(serde_json::Value::String(
+                        v[6].clone(),
+                    ))?)
+                },
+                review: if v[7].is_empty() {
+                    None
+                } else {
+                    Some(serde_json::from_value(serde_json::Value::String(
+                        v[7].clone(),
+                    ))?)
+                },
+                archived: self.filter.archived,
+                assignee: v[1].parse().ok(),
+                category: v[2].parse().ok(),
+                status: if v[3].is_empty() {
+                    None
+                } else {
+                    Some(serde_json::from_value(serde_json::Value::String(
+                        v[3].clone(),
+                    ))?)
+                },
+                unassigned: v[4] == "unassigned",
+                incomplete: v[4] != "all",
+                overdue_before: (v[4] == "overdue").then(|| chrono::Local::now().date_naive()),
+                ..Default::default()
+            };
+            self.selected = None;
+            self.x = 0;
+            self.y = 0;
+            self.focus_board();
+        }
+        Ok(())
+    }
+    fn archive_form(&mut self, id: i64) -> Result<()> {
+        let p = self
+            .project
+            .as_ref()
+            .ok_or("プロジェクトを選択してください")?;
+        let impact = p.removal_preview(id)?;
+        let mut lines = vec![
+            format!("#{} {} / 版 {}", id, impact.task.title, impact.revision),
+            format!(
+                "保管後は通常表示・日程計算・工数集計から除外します。依存関係{}件を無効化し、関連課題{}件からの参照を保管済みとして保持します。復元すると同じIDと関係が戻ります。",
+                impact.dependencies.len(),
+                impact.related_issue_ids.len()
+            ),
+        ];
+        for d in &impact.dependencies {
+            lines.push(format!(
+                "#{} → #{}（待機{}営業日）",
+                d.predecessor, d.successor, d.lag_days
+            ));
+        }
+        let mut details = field("影響（読み取り専用）", lines.join("\n"), 0);
+        details.multi = true;
+        details.read_only = true;
+        if form(
+            self.hwnd,
+            "項目を保管 — 影響確認",
+            vec![
+                choice(
+                    "適用の確認",
+                    "no",
+                    vec![
+                        ("no".into(), "未確認".into()),
+                        ("yes".into(), "影響を確認して保管する".into()),
+                    ],
+                    0,
+                ),
+                details,
+            ],
+            |v| {
+                if v[0] == "yes" {
+                    Ok(())
+                } else {
+                    Err("影響を確認して保管を選択してください".into())
+                }
+            },
+        )
+        .is_some()
+        {
+            self.apply(Change::RemoveTask { id })?;
+            self.selected = None;
+        }
+        Ok(())
+    }
+    fn restore_form(&mut self) -> Result<()> {
+        let p = self
+            .project
+            .as_ref()
+            .ok_or("プロジェクトを選択してください")?;
+        let choices: Vec<_> = p
+            .tasks
+            .iter()
+            .filter(|t| t.archived)
+            .map(|t| (t.id.to_string(), format!("#{} {}", t.id, t.title)))
+            .collect();
+        let first = choices
+            .first()
+            .ok_or("保管済みの項目はありません")?
+            .0
+            .clone();
+        if let Some(v) = form(
+            self.hwnd,
+            "保管した項目を復元",
+            vec![choice("復元する項目", first, choices, 0)],
+            |_| Ok(()),
+        ) {
+            self.apply(Change::RestoreTask { id: v[0].parse()? })?;
+            self.filter = TaskFilter::default();
+            self.selected = None;
+            self.focus_board();
+        }
+        Ok(())
+    }
+    fn schedule_form(&mut self) -> Result<()> {
+        let p = self
+            .project
+            .as_ref()
+            .ok_or("プロジェクトを選択してください")?;
+        let preview = p.schedule_preview()?;
+        let mut lines = vec![
+            format!(
+                "版 {} / 変更 {}件 / 案件終了日 {}",
+                preview.revision,
+                preview.changes.len(),
+                p.finish
+            ),
+            "完了・中止済みで開始日と期限がある項目は固定します。".into(),
+        ];
+        if !preview.overdue_ids.is_empty() {
+            lines.push(format!(
+                "警告: 案件終了日を超過する項目 {}件",
+                preview.overdue_ids.len()
+            ));
+            for t in p
+                .tasks
+                .iter()
+                .filter(|t| preview.overdue_ids.contains(&t.id))
+            {
+                lines.push(format!("  #{} {}", t.id, t.title));
+            }
+        }
+        for d in &preview.changes {
+            lines.push(format!(
+                "#{} {}\n  {:?} 〜 {:?} → {:?} 〜 {:?}",
+                d.id, d.title, d.old_start, d.old_due, d.start, d.due
+            ));
+        }
+        let mut details = field("変更差分（読み取り専用）", lines.join("\n"), 0);
+        details.multi = true;
+        details.read_only = true;
+        let acceptance = if preview.overdue_ids.is_empty() {
+            "差分を確認して適用する"
+        } else {
+            "納期超過を承認して適用する"
+        };
+        if form(
+            self.hwnd,
+            "日程の再計算 — 保存前の確認",
+            vec![
+                choice(
+                    "適用の確認",
+                    "no",
+                    vec![
+                        ("no".into(), "未確認".into()),
+                        ("yes".into(), acceptance.into()),
+                    ],
+                    0,
+                ),
+                details,
+            ],
+            |v| {
+                if v[0] == "yes" {
+                    Ok(())
+                } else {
+                    Err("差分と警告を確認して、適用を選択してください".into())
+                }
+            },
+        )
+        .is_some()
+        {
+            self.apply(Change::Schedule {
+                allow_overrun: !preview.overdue_ids.is_empty(),
+            })?;
+        }
+        Ok(())
     }
     fn apply(&mut self, change: Change) -> Result<()> {
         let p = self
@@ -727,6 +1230,7 @@ impl State {
             Task {
                 kind: if issue { Kind::Issue } else { Kind::Task },
                 duration_days: 1,
+                include_in_effort: !issue,
                 ..Default::default()
             }
         } else {
@@ -794,7 +1298,77 @@ impl State {
             field("進捗（%）", t.progress, 1),
             field("説明", &t.description, 2),
         ];
+        fields.extend([
+            choice(
+                "優先度",
+                serde_json::to_value(t.priority)?.as_str().unwrap(),
+                Priority::ALL
+                    .into_iter()
+                    .map(|v| {
+                        (
+                            serde_json::to_value(v).unwrap().as_str().unwrap().into(),
+                            v.label().into(),
+                        )
+                    })
+                    .collect(),
+                3,
+            ),
+            choice(
+                "重大度",
+                serde_json::to_value(t.severity)?.as_str().unwrap(),
+                Severity::ALL
+                    .into_iter()
+                    .map(|v| {
+                        (
+                            serde_json::to_value(v).unwrap().as_str().unwrap().into(),
+                            v.label().into(),
+                        )
+                    })
+                    .collect(),
+                3,
+            ),
+            choice(
+                "レビュー",
+                serde_json::to_value(t.review)?.as_str().unwrap(),
+                ReviewState::ALL
+                    .into_iter()
+                    .map(|v| {
+                        (
+                            serde_json::to_value(v).unwrap().as_str().unwrap().into(),
+                            v.label().into(),
+                        )
+                    })
+                    .collect(),
+                3,
+            ),
+            choice(
+                "確認者",
+                t.reviewer.map(|id| id.to_string()).unwrap_or_default(),
+                masters(MasterKind::Assignee),
+                3,
+            ),
+            field("確認メモ・理由", &t.review_note, 4),
+            choice(
+                "工数集計",
+                if t.include_in_effort { "yes" } else { "no" },
+                vec![
+                    ("yes".into(), "工数に算入".into()),
+                    ("no".into(), "集計から除外".into()),
+                ],
+                5,
+            ),
+            field(
+                "対応タスクID（課題のみ）",
+                t.related_tasks
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                5,
+            ),
+        ]);
         fields[10].multi = true;
+        fields[15].multi = true;
         if let Some(v) = form(
             self.hwnd,
             if new {
@@ -828,6 +1402,13 @@ impl State {
             t.estimate = v[8].parse()?;
             t.progress = v[9].parse()?;
             t.description = v[10].clone();
+            t.priority = serde_json::from_value(serde_json::Value::String(v[11].clone()))?;
+            t.severity = serde_json::from_value(serde_json::Value::String(v[12].clone()))?;
+            t.review = serde_json::from_value(serde_json::Value::String(v[13].clone()))?;
+            t.reviewer = v[14].parse().ok();
+            t.review_note = v[15].clone();
+            t.include_in_effort = v[16] == "yes";
+            t.related_tasks = related_ids(&v[17])?;
             self.apply(Change::SaveTask { task: t })?;
         }
         Ok(())
@@ -1055,27 +1636,28 @@ impl State {
             }
             113 => {
                 if let Some(id) = self.selected {
-                    unsafe {
-                        if MessageBoxW(
-                            Some(self.hwnd),
-                            w!("選択した項目を削除しますか？ この操作は取り消せません。"),
-                            w!("yyproject"),
-                            MB_YESNO | MB_ICONQUESTION,
-                        ) == IDYES
-                        {
-                            self.apply(if self.view == 7 {
-                                Change::RemoveMaster { id }
-                            } else {
-                                Change::RemoveTask { id }
-                            })?;
-                            self.selected = None;
+                    if self.view == 7 {
+                        unsafe {
+                            if MessageBoxW(
+                                Some(self.hwnd),
+                                w!("選択したマスタを削除しますか？"),
+                                w!("yyproject"),
+                                MB_YESNO | MB_ICONQUESTION,
+                            ) == IDYES
+                            {
+                                self.apply(Change::RemoveMaster { id })?;
+                                self.selected = None;
+                            }
                         }
+                    } else {
+                        self.archive_form(id)?;
                     }
                 }
             }
+            119 => self.restore_form()?,
             114 => self.dependency(false)?,
             115 => self.dependency(true)?,
-            116 => self.apply(Change::Schedule)?,
+            116 => self.schedule_form()?,
             117 => self.apply(Change::Capture {
                 day: chrono::Local::now().date_naive(),
             })?,
@@ -1105,11 +1687,34 @@ impl State {
                 self.y = 0;
                 self.selected = None;
                 send(self.tabs, TCM_SETCURSEL, self.view, 0);
+                self.focus_board();
+            }
+            412 => {
+                self.filter = TaskFilter {
+                    archived: true,
+                    ..Default::default()
+                };
+                self.view = 0;
+                self.selected = None;
+                send(self.tabs, TCM_SETCURSEL, 0, 0);
+                self.focus_board();
+            }
+            410 => self.filter_form()?,
+            411 => {
+                self.filter = TaskFilter::default();
+                self.x = 0;
+                self.y = 0;
+                self.focus_board();
+            }
+            400..=404 => {
+                self.view = 0;
+                self.x = (id - 400) as i32 * self.px(240);
+                self.y = 0;
+                send(self.tabs, TCM_SETCURSEL, 0, 0);
             }
             300..=304 => {
-                if let Some(mut t) = self.task().cloned() {
-                    t.status = Status::ALL[id - 300];
-                    self.apply(Change::SaveTask { task: t })?;
+                if let Some(t) = self.task().cloned() {
+                    self.set_status(t, Status::ALL[id - 300])?;
                 }
             }
             _ => {}
@@ -1156,7 +1761,11 @@ impl State {
                 r.right,
                 (r.bottom - top - tab_h - self.px(28)).max(0),
             );
-            let n = self.project.as_ref().map_or(0, |p| p.tasks.len()) as i32;
+            let n = self
+                .project
+                .as_ref()
+                .map_or(0, |p| p.tasks.iter().filter(|t| !t.archived).count())
+                as i32;
             self.content = match self.view {
                 0 => (
                     self.px(1200),
@@ -1165,7 +1774,10 @@ impl State {
                             Status::ALL
                                 .iter()
                                 .map(|status| {
-                                    p.tasks.iter().filter(|t| t.status == *status).count()
+                                    p.tasks
+                                        .iter()
+                                        .filter(|t| t.status == *status && self.filter.matches(t))
+                                        .count()
                                 })
                                 .max()
                                 .unwrap_or(0)
@@ -1184,10 +1796,11 @@ impl State {
                     (n + 2) * self.px(30),
                 ),
                 2 | 3 => (
-                    self.px(1100),
+                    self.px(1800),
                     (self.project.as_ref().map_or(0, |p| {
                         p.tasks
                             .iter()
+                            .filter(|t| self.filter.matches(t))
                             .filter(|t| {
                                 if self.view == 3 {
                                     t.kind == Kind::Issue
@@ -1257,10 +1870,16 @@ impl State {
             || "ファイル → プロジェクトを追加 から始めてください".into(),
             |p| {
                 format!(
-                    "{} | 版 {} | タスク・課題 {}件 | {} | {}",
+                    "{} 絞込 {} / {}件（カンバン・一覧） | {} | 版 {} | {} | {}",
+                    if self.filter.archived {
+                        "保管済み"
+                    } else {
+                        "通常"
+                    },
+                    p.tasks.iter().filter(|t| self.filter.matches(t)).count(),
+                    p.tasks.len(),
                     self.path.display(),
                     p.revision,
-                    p.tasks.len(),
                     self.status,
                     self.master_label()
                 )
@@ -1304,6 +1923,7 @@ impl State {
         };
         match self.view {
             0 => {
+                let row = self.px(20);
                 for (col, status) in Status::ALL.iter().enumerate() {
                     let cx = x + col as i32 * self.px(240);
                     let width = self.px(232);
@@ -1314,11 +1934,23 @@ impl State {
                     label(
                         dc,
                         rect(cx + 8, a.top, width - 16, row),
-                        status.label(),
+                        &format!(
+                            "{} ({})",
+                            status.label(),
+                            p.tasks
+                                .iter()
+                                .filter(|t| t.status == *status && self.filter.matches(t))
+                                .count()
+                        ),
                         black,
                     );
-                    for (i, t) in p.tasks.iter().filter(|t| t.status == *status).enumerate() {
-                        let y = top + row + 8 + i as i32 * self.px(88);
+                    for (i, t) in p
+                        .tasks
+                        .iter()
+                        .filter(|t| t.status == *status && self.filter.matches(t))
+                        .enumerate()
+                    {
+                        let y = top + row + self.px(2) + i as i32 * self.px(88);
                         let card = rect(cx + 4, y, width - 8, self.px(80));
                         if card.bottom < a.top + row || card.top > a.bottom {
                             continue;
@@ -1349,33 +1981,64 @@ impl State {
                             ),
                             black,
                         );
+                        label(
+                            dc,
+                            rect(card.left + 6, y + row * 2, card.right - card.left - 12, row),
+                            &format!(
+                                "{} / {} / {}",
+                                t.priority.label(),
+                                t.review.label(),
+                                if t.include_in_effort {
+                                    "工数算入"
+                                } else {
+                                    "工数除外"
+                                }
+                            ),
+                            black,
+                        );
                         self.hits.push((card, t.id));
                     }
                     fill(dc, rect(cx, a.top, width, row), color(*status));
                     label(
                         dc,
                         rect(cx + 8, a.top, width - 16, row),
-                        status.label(),
+                        &format!(
+                            "{} ({})",
+                            status.label(),
+                            p.tasks
+                                .iter()
+                                .filter(|t| t.status == *status && self.filter.matches(t))
+                                .count()
+                        ),
                         black,
                     );
                 }
             }
             2 | 3 => {
-                let widths = [60, 300, 100, 130, 130, 110, 110, 80, 80];
+                let widths = [
+                    60, 300, 100, 90, 110, 110, 130, 130, 110, 110, 80, 80, 130, 110, 140,
+                ];
                 let headers = [
                     "ID",
                     "件名",
                     "状態",
+                    "優先度",
+                    "重大度",
+                    "レビュー",
+                    "確認者",
                     "担当者",
                     "カテゴリ",
                     "開始日",
                     "期限",
                     "進捗",
                     "工数(h)",
+                    "工数集計",
+                    "対応タスクID",
                 ];
                 for (i, t) in p
                     .tasks
                     .iter()
+                    .filter(|t| self.filter.matches(t))
                     .filter(|t| {
                         if self.view == 3 {
                             t.kind == Kind::Issue
@@ -1393,14 +2056,28 @@ impl State {
                         t.id.to_string(),
                         t.title.clone(),
                         t.status.label().into(),
+                        t.priority.label().into(),
+                        t.severity.label().into(),
+                        t.review.label().into(),
+                        master_name(t.reviewer).into(),
                         master_name(t.assignee).into(),
                         master_name(t.category).into(),
                         t.start.map(|d| d.to_string()).unwrap_or_default(),
                         t.due.map(|d| d.to_string()).unwrap_or_default(),
                         format!("{}%", t.progress),
                         t.estimate.to_string(),
+                        if t.include_in_effort {
+                            "算入".into()
+                        } else {
+                            "除外".into()
+                        },
+                        t.related_tasks
+                            .iter()
+                            .map(|id| id.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
                     ];
-                    let rr = rect(x, y, self.px(1100), row);
+                    let rr = rect(x, y, self.px(1800), row);
                     fill(
                         dc,
                         rr,
@@ -1465,7 +2142,7 @@ impl State {
                 unsafe {
                     IntersectClipRect(dc, a.left + name_w, a.top + row, a.right, a.bottom);
                 }
-                for (i, t) in p.tasks.iter().enumerate() {
+                for (i, t) in p.tasks.iter().filter(|t| !t.archived).enumerate() {
                     let y = top + (i as i32 + 1) * row;
                     if y + row < a.top + row || y > a.bottom {
                         continue;
@@ -1495,7 +2172,7 @@ impl State {
                 unsafe {
                     IntersectClipRect(dc, a.left, a.top + row, a.right, a.bottom);
                 }
-                for (i, t) in p.tasks.iter().enumerate() {
+                for (i, t) in p.tasks.iter().filter(|t| !t.archived).enumerate() {
                     let y = top + (i as i32 + 1) * row;
                     if y + row <= a.top + row || y >= a.bottom {
                         continue;
@@ -1529,7 +2206,7 @@ impl State {
                     let (col, row) = graph[&id];
                     (x + col as i32 * gap_x + 12, top + row as i32 * gap_y + 12)
                 };
-                for d in &p.dependencies {
+                for d in p.active_dependencies() {
                     let (sx, sy) = pos(d.predecessor);
                     let (tx, ty) = pos(d.successor);
                     let start = (sx + self.px(190), sy + self.px(35));
@@ -1752,7 +2429,8 @@ fn menu() -> windows::core::Result<HMENU> {
                     (110, "タスクを追加".into()),
                     (111, "課題を追加".into()),
                     (112, "選択項目を編集".into()),
-                    (113, "選択項目を削除".into()),
+                    (113, "選択項目を保管（マスタは削除）…".into()),
+                    (119, "保管した項目を復元…".into()),
                     (114, "依存関係を追加".into()),
                     (115, "依存関係を削除".into()),
                     (116, "営業日で日程を再計算".into()),
@@ -1777,6 +2455,22 @@ fn menu() -> windows::core::Result<HMENU> {
                     .enumerate()
                     .map(|(i, s)| (300 + i, s.label().into()))
                     .collect(),
+            ),
+            (
+                "カンバンの列",
+                Status::ALL
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, s)| (400 + i, s.label().into()))
+                    .collect(),
+            ),
+            (
+                "絞り込み",
+                vec![
+                    (410, "検索条件を設定…".into()),
+                    (411, "すべて解除".into()),
+                    (412, "保管済みの項目を表示".into()),
+                ],
             ),
             ("ヘルプ", vec![(140, "使い方 / MCP設定".into())]),
         ];
@@ -1842,6 +2536,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         s.selected = None;
                         s.x = 0;
                         s.y = 0;
+                        s.focus_board();
                         s.layout();
                         invalidate(h);
                     }
@@ -1898,7 +2593,8 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         .find(|(r, _)| {
                             inside(*r, x, y)
                                 && inside(s.body, x, y)
-                                && (s.view == 4 || y >= s.body.top + px(h, 30))
+                                && (s.view == 4
+                                    || y >= s.body.top + px(h, if s.view == 0 { 20 } else { 30 }))
                         })
                         .map(|(_, id)| *id);
                     if s.view == 0 {
@@ -1916,14 +2612,13 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         if inside(s.body, x, y) {
                             let col = ((x + s.x) / px(h, 240)) as usize;
                             if let Some(status) = Status::ALL.get(col) {
-                                if let Some(mut task) = s
+                                if let Some(task) = s
                                     .project
                                     .as_ref()
                                     .and_then(|p| p.tasks.iter().find(|t| t.id == id))
                                     .cloned()
                                 {
-                                    task.status = *status;
-                                    s.apply(Change::SaveTask { task })
+                                    s.set_status(task, *status)
                                 } else {
                                     Ok(())
                                 }
@@ -2103,6 +2798,7 @@ pub fn run() -> Result<()> {
             projects: vec![],
             project: None,
             view: 0,
+            filter: TaskFilter::default(),
             master_kind: MasterKind::Category,
             selected: None,
             x: 0,
@@ -2115,6 +2811,7 @@ pub fn run() -> Result<()> {
             body: RECT::default(),
         };
         state.reload()?;
+        state.focus_board();
         APP.with(|a| *a.borrow_mut() = Some(state));
         SetTimer(Some(hwnd), 1, 1000, None);
         let _ = ShowWindow(

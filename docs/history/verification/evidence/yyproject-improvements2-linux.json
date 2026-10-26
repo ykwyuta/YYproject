@@ -1,0 +1,312 @@
+{
+  "generated_at": "2026-10-26T08:12:28.609769+00:00",
+  "as_of": "2026-10-26",
+  "server_version": "yyproject 0.1.0",
+  "database_sha256": "669edbc01350a068444f004022599bce5e3a3f55524f2758b21aca215afa6e29",
+  "scenario_sha256": "e48a5302bade41e8f394e714ba708dcf98c3f799d41d2985eb1e52c010650e4b",
+  "inventory": [
+    {
+      "id": 1,
+      "name": "YY安定化リリース / 外部待ち・差し戻し・追加要求（架空）",
+      "items": 64,
+      "issues": 16,
+      "checkpoints": 8
+    },
+    {
+      "id": 2,
+      "name": "YY緊急保守 / SCP保存事故対策（架空）",
+      "items": 16,
+      "issues": 4,
+      "checkpoints": 3
+    },
+    {
+      "id": 3,
+      "name": "YY前回リリース / 完了案件の参照（架空）",
+      "items": 10,
+      "issues": 2,
+      "checkpoints": 3
+    }
+  ],
+  "findings": [
+    {
+      "id": "OPS-01",
+      "severity": "P1",
+      "title": "兼務担当者の稼働上限・案件横断の負荷をモデルで表せない",
+      "status": "gap",
+      "evidence": {
+        "planned_over_capacity_days": 21,
+        "examples": [
+          {
+            "owner": "鈴木（UI）",
+            "day": "2026-10-26",
+            "hours": 27.6,
+            "capacity": 6,
+            "projects": [
+              1
+            ],
+            "tasks": [
+              "[EDT-03] P2 大容量・多文字コードの編集を受け入れる",
+              "[DRW-03] P2 業務構成図で整列・エクスポートを受け入れる",
+              "[TST-03] P1 兼務担当を含む利用部門の受入試験を実行する"
+            ]
+          },
+          {
+            "owner": "鈴木（UI）",
+            "day": "2026-10-27",
+            "hours": 27.6,
+            "capacity": 6,
+            "projects": [
+              1
+            ],
+            "tasks": [
+              "[EDT-03] P2 大容量・多文字コードの編集を受け入れる",
+              "[DRW-03] P2 業務構成図で整列・エクスポートを受け入れる",
+              "[TST-03] P1 兼務担当を含む利用部門の受入試験を実行する"
+            ]
+          },
+          {
+            "owner": "山本（運用・兼務）",
+            "day": "2026-11-03",
+            "hours": 16.0,
+            "capacity": 4,
+            "projects": [
+              1,
+              2
+            ],
+            "tasks": [
+              "[REL-01] P1 リリース対象を凍結して検証結果を集約する",
+              "[HOT-10] P1 パッチに署名して配布",
+              "[HOT-11] P1 ロールバック手順を検証"
+            ]
+          },
+          {
+            "owner": "山本（運用・兼務）",
+            "day": "2026-10-26",
+            "hours": 15.0,
+            "capacity": 4,
+            "projects": [
+              1
+            ],
+            "tasks": [
+              "[OPS-03] P2 配布失敗時の切り戻しリハーサルを行う",
+              "[CR-04] P1 署名証明書の切り替え手順を追加する"
+            ]
+          },
+          {
+            "owner": "山本（運用・兼務）",
+            "day": "2026-10-27",
+            "hours": 15.0,
+            "capacity": 4,
+            "projects": [
+              1
+            ],
+            "tasks": [
+              "[OPS-03] P2 配布失敗時の切り戻しリハーサルを行う",
+              "[CR-04] P1 署名証明書の切り替え手順を追加する"
+            ]
+          },
+          {
+            "owner": "高橋（データ）",
+            "day": "2026-10-26",
+            "hours": 22.2,
+            "capacity": 6,
+            "projects": [
+              1,
+              2
+            ],
+            "tasks": [
+              "[SHT-03] P2 固定長の列配置を保った再出力を受け入れる",
+              "[MRG-03] P2 PDF・Office・画像比較の受入結果をまとめる",
+              "[HOT-07] P1 変更した保存処理をレビュー"
+            ]
+          },
+          {
+            "owner": "高橋（データ）",
+            "day": "2026-10-27",
+            "hours": 22.2,
+            "capacity": 6,
+            "projects": [
+              1,
+              2
+            ],
+            "tasks": [
+              "[SHT-03] P2 固定長の列配置を保った再出力を受け入れる",
+              "[MRG-03] P2 PDF・Office・画像比較の受入結果をまとめる",
+              "[HOT-07] P1 変更した保存処理をレビュー"
+            ]
+          },
+          {
+            "owner": "伊藤（QA）",
+            "day": "2026-10-27",
+            "hours": 21.0,
+            "capacity": 6,
+            "projects": [
+              1,
+              2
+            ],
+            "tasks": [
+              "[UXR-03] P2 長い件名・多数項目・複数案件を使った進捗会議で必要項目をすぐに特定して承認する",
+              "[CR-05] P1 CSV差し戻しの回帰試験を追加する",
+              "[HOT-08] P1 既存転送との回帰試験"
+            ]
+          }
+        ],
+        "assumption": "残工数を基準日以降の残り予定営業日に均等配分した机上比較。実稼働ではない。期限超過の残工数は別集計で、この負荷に含めない。"
+      },
+      "suggested_action": "稼働カレンダー・配賦率・案件横断集計と、過負荷時の警告を設計する"
+    },
+    {
+      "id": "OPS-02",
+      "severity": "P1",
+      "title": "期限超過・未割当を共通条件で絞り込める",
+      "status": "supported",
+      "evidence": {
+        "overdue_count": 19,
+        "unassigned_count": 3,
+        "gui_scope": "カンバン・タスク一覧・課題一覧"
+      },
+      "suggested_action": "保存ビューと並べ替え、案件横断表示は引き続き改善対象"
+    },
+    {
+      "id": "SAFE-01",
+      "severity": "control",
+      "title": "古い版での上書きを拒否する",
+      "status": "supported",
+      "evidence": {
+        "first_revision": 221,
+        "current_revision": 222,
+        "second_update_rejected": true
+      },
+      "suggested_action": "安全性は維持する。別項目でも競合するため、再読込・差分表示・再適用のUXを改善する"
+    },
+    {
+      "id": "SAFE-02",
+      "severity": "control",
+      "title": "不正参照・循環・読み取り専用更新を拒否する",
+      "status": "supported",
+      "evidence": {
+        "invalid_owner_rejected": true,
+        "cycle_rejected": true,
+        "readonly_rejected": true,
+        "revision_unchanged_on_error": true
+      },
+      "suggested_action": "基本の整合性と読み取り専用運用を継続する"
+    },
+    {
+      "id": "OPS-03",
+      "severity": "P1",
+      "title": "完了から100%のまま再開する操作を拒否する",
+      "status": "supported",
+      "evidence": {
+        "unchanged_progress_rejected": true,
+        "explicit_progress": 40,
+        "remaining_hours": 7.199999999999999
+      },
+      "suggested_action": "承認状態の独立管理は別途改善する"
+    },
+    {
+      "id": "OPS-04",
+      "severity": "P1",
+      "title": "未完了の先行作業がある後続の完了を拒否する",
+      "status": "supported",
+      "evidence": {
+        "predecessor": "[SSH-02] P1 SecureCube相当のSCP一覧取得と転送を実機検証する",
+        "predecessor_status": "blocked",
+        "completion_rejected": true
+      },
+      "suggested_action": "不要な依存は解除してから完了する。例外承認機構は未実装"
+    },
+    {
+      "id": "OPS-05",
+      "severity": "P1",
+      "title": "日程再計算で完了済みの開始日・期限を保持する",
+      "status": "supported",
+      "evidence": {
+        "changed_completed_tasks": 0,
+        "preview_changes": 21,
+        "preview_wrote_nothing": true
+      },
+      "suggested_action": "基準計画・実績日を別フィールドへ分離する改善は残る"
+    },
+    {
+      "id": "OPS-06",
+      "severity": "P1",
+      "title": "納期超過はプレビューと明示承認が必要",
+      "status": "supported",
+      "evidence": {
+        "project_finish": "2026-11-09",
+        "release_due": "2027-03-03",
+        "default_rejected": true,
+        "explicit_acceptance_recorded": true
+      },
+      "suggested_action": "実行者と承認者の分離は未実装。承認操作は監査記録に残る"
+    },
+    {
+      "id": "OPS-07",
+      "severity": "P1",
+      "title": "レビュー・確認者・優先度・重大度を構造化する",
+      "status": "supported",
+      "evidence": {
+        "pending_review_count": 1,
+        "completion_without_approval_rejected": true,
+        "saved_priority": "critical",
+        "saved_severity": "major"
+      },
+      "suggested_action": "確認者はマスタ参照。本人認証・権限分離やレビュー履歴の専用画面は未実装。変更は監査に記録"
+    },
+    {
+      "id": "OPS-08",
+      "severity": "P2",
+      "title": "課題の対応タスクを関連付け、工数算入を選べる",
+      "status": "supported",
+      "evidence": {
+        "scope_before": 802.0,
+        "scope_after_excluded_issue_effort": 802.0,
+        "explicit_opt_in_scope": 810.0,
+        "related_task_ids": [
+          14,
+          15
+        ]
+      },
+      "suggested_action": "新規GUI課題は工数集計から除外。既存DB/MCP既定は従来どおり算入。重複の自動推定・自動除外は行わない"
+    },
+    {
+      "id": "OPS-09",
+      "severity": "P2",
+      "title": "過去日へ現在の集計を上書きできる",
+      "status": "gap",
+      "evidence": {
+        "day": "2026-09-21",
+        "before": {
+          "completed": -0.0,
+          "day": "2026-09-21",
+          "remaining": 722.4,
+          "scope": 726.0
+        },
+        "after": {
+          "completed": 300.0,
+          "day": "2026-09-21",
+          "remaining": 506.79999999999995,
+          "scope": 902.0
+        }
+      },
+      "suggested_action": "過去締め・補正理由・訂正履歴を設計する。現行captureは明示指定による置換として公開されている"
+    },
+    {
+      "id": "OPS-10",
+      "severity": "P2",
+      "title": "保管前の影響を確認し、項目と関係を復元できる",
+      "status": "supported",
+      "evidence": {
+        "retained_dependencies": 3,
+        "related_issues": [
+          43
+        ],
+        "active_query_hidden": true,
+        "archived_query_found": true,
+        "restored_same_id_and_fields": true
+      },
+      "suggested_action": "保管中は依存が無効になる。復元すると同じ関係が有効になる。保管項目も容量上限に含め、完全消去・自動世代整理は提供しない"
+    }
+  ]
+}

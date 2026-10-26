@@ -46,9 +46,14 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
             },
             "UI-test",
         )?;
-        p = s
-            .store
-            .apply(p.id, p.revision, &Change::Schedule, "UI-test")?;
+        p = s.store.apply(
+            p.id,
+            p.revision,
+            &Change::Schedule {
+                allow_overrun: false,
+            },
+            "UI-test",
+        )?;
         s.project = Some(p);
         s.reload()?;
         Ok(())
@@ -59,7 +64,12 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
         let a = a.borrow();
         let s = a.as_ref().unwrap();
         let p = s.project.as_ref().unwrap();
-        if p.tasks.len() != 3 || !p.tasks.iter().any(|t| t.title == "UI-created-task") {
+        if p.tasks.len() != 3
+            || !p
+                .tasks
+                .iter()
+                .any(|t| t.title == "UI-created-task" && t.priority == Priority::High)
+        {
             return Err("Native task form did not commit the expected values".into());
         }
         Ok(())
@@ -340,7 +350,211 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
         }
         Ok(())
     })?;
+    send(h, WM_COMMAND, 301, 0);
+    APP.with(|a| -> Result<()> {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        let t = s
+            .project
+            .as_ref()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|t| t.id == task)
+            .unwrap();
+        if t.status != Status::Doing || t.progress != 40 {
+            return Err("Reopening dialog did not persist remaining work".into());
+        }
+        Ok(())
+    })?;
+    let revision = APP.with(|a| {
+        a.borrow()
+            .as_ref()
+            .unwrap()
+            .project
+            .as_ref()
+            .unwrap()
+            .revision
+    });
+    SMOKE_CANCEL_FORM.with(|s| s.set(true));
+    send(h, WM_COMMAND, 116, 0);
+    APP.with(|a| -> Result<()> {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        let p = s.project.as_ref().unwrap();
+        if s.store.get(p.id)?.revision != revision {
+            return Err("Cancelling schedule wrote a change".into());
+        }
+        Ok(())
+    })?;
+    send(h, WM_COMMAND, 116, 0);
+    APP.with(|a| -> Result<()> {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        if s.project.as_ref().unwrap().revision != revision + 1 {
+            return Err("Confirmed schedule did not save".into());
+        }
+        Ok(())
+    })?;
+    report.push(
+        "Native reopening/progress and schedule cancel/confirmation/read-only details: OK".into(),
+    );
     report.push("Native task/master forms, AI refresh, multiline/master preservation, project switching, eight views at two sizes, real client hit tests and kanban drag: OK".into());
+    let demo_path = directory.join("yyproject-demo.sqlite3");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo/yyproject-demo.sqlite3"),
+        &demo_path,
+    )?;
+    unsafe {
+        SetWindowPos(h, None, 0, 0, 1100, 700, SWP_NOZORDER | SWP_NOACTIVATE)?;
+    }
+    APP.with(|a| -> Result<()> {
+        let mut a = a.borrow_mut();
+        let s = a.as_mut().unwrap();
+        s.store = Store::open(&demo_path, false)?;
+        s.path = demo_path;
+        s.project = None;
+        s.selected = None;
+        s.x = 0;
+        s.y = 0;
+        s.reload()?;
+        if s.project
+            .as_ref()
+            .is_none_or(|p| p.tasks.len() != 64 || p.history.len() != 8)
+        {
+            return Err("Bundled demo did not load into the native UI".into());
+        }
+        Ok(())
+    })?;
+    let projects = APP.with(|a| a.borrow().as_ref().unwrap().projects.clone());
+    if projects.len() != 3 {
+        return Err("Expected three operating scenarios".into());
+    }
+    for (index, (pid, _, _)) in projects.iter().enumerate() {
+        let selector = APP.with(|a| a.borrow().as_ref().unwrap().selector);
+        send(selector, CB_SETCURSEL, index, 0);
+        send(
+            h,
+            WM_COMMAND,
+            (CBN_SELCHANGE as usize) << 16 | 10,
+            selector.0 as isize,
+        );
+        pump_until(|| {
+            APP.with(|a| {
+                a.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .project
+                    .as_ref()
+                    .is_some_and(|p| p.id == *pid)
+            })
+        })?;
+        for (width, height) in [(1100, 700), (640, 480)] {
+            unsafe {
+                SetWindowPos(h, None, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE)?;
+            }
+            for (view, title) in VIEWS.iter().enumerate() {
+                if view == 0 {
+                    let tabs = APP.with(|a| {
+                        let mut a = a.borrow_mut();
+                        let s = a.as_mut().unwrap();
+                        s.x = 0;
+                        s.tabs
+                    });
+                    send(tabs, TCM_SETCURSEL, 0, 0);
+                    let notification = NMHDR {
+                        hwndFrom: tabs,
+                        code: TCN_SELCHANGE,
+                        ..Default::default()
+                    };
+                    send(h, WM_NOTIFY, 0, &notification as *const _ as isize);
+                } else {
+                    send(h, WM_COMMAND, 200 + view, 0);
+                }
+                pump_until(|| APP.with(|a| a.borrow().as_ref().unwrap().view == view))?;
+                APP.with(|a| -> Result<()> {
+                    let mut a=a.borrow_mut(); let s=a.as_mut().unwrap();
+                    let mut area=RECT::default(); unsafe { GetClientRect(h,&mut area)?; }
+                    let p=s.project.as_ref().unwrap();
+                    if s.network.len()!=p.tasks.len() { return Err("Project switch used a stale graph".into()); }
+                    capture(s,area,&directory.join(format!("demo-{pid}-{view}-{width}.bmp")))?;
+                    if view == 0 && s.hits.is_empty() {
+                        return Err("Nonempty demo project appeared empty in Kanban".into());
+                    }
+                    report.push(format!("Demo project={pid} view={title} width={width} visible={} content={}x{} viewport={}x{}: rendered",s.hits.len(),s.content.0,s.content.1,s.body.right-s.body.left,s.body.bottom-s.body.top));
+                    Ok(())
+                })?;
+            }
+        }
+    }
+    APP.with(|a| -> Result<()> {
+        let mut a = a.borrow_mut();
+        let s = a.as_mut().unwrap();
+        s.select_project(0)?;
+        s.command(203)?;
+        s.command(410)?;
+        s.layout();
+        let mut area = RECT::default();
+        unsafe {
+            GetClientRect(h, &mut area)?;
+        }
+        capture(s, area, &directory.join("filtered-issue.bmp"))?;
+        if s.hits.len() != 1 {
+            return Err("Search did not isolate the selected issue".into());
+        }
+        s.filter = TaskFilter {
+            unassigned: true,
+            incomplete: true,
+            ..Default::default()
+        };
+        s.layout();
+        capture(s, area, &directory.join("filtered-unassigned-issue.bmp"))?;
+        if s.hits.len() != 1 {
+            return Err("Unassigned issue filter rendered incorrect rows".into());
+        }
+        s.command(411)?;
+        capture(s, area, &directory.join("filter-cleared.bmp"))?;
+        if s.hits.is_empty() {
+            return Err("Clearing filters did not restore rows".into());
+        }
+        report.push("Search/unassigned filters, completed-only Kanban and clear action: OK".into());
+        Ok(())
+    })?;
+    unsafe {
+        SetWindowPos(h, None, 0, 0, 1100, 700, SWP_NOZORDER | SWP_NOACTIVATE)?;
+    }
+    APP.with(|a| -> Result<()> {
+        let mut a=a.borrow_mut();let s=a.as_mut().unwrap();
+        s.command(411)?;s.command(202)?;
+        let before=s.project.as_ref().unwrap().tasks.iter().find(|t|t.title.starts_with("[PRJ-03]")).unwrap().clone();
+        s.selected=Some(before.id);
+        s.edit_task(false,false)?;
+        let edited=s.project.as_ref().unwrap().tasks.iter().find(|t|t.id==before.id).unwrap();
+        if edited.review!=ReviewState::Pending || edited.reviewer!=before.reviewer || edited.review_note!=before.review_note || edited.priority!=Priority::High { return Err("Native task form lost review fields".into()); }
+        s.filter=TaskFilter{review:Some(ReviewState::Pending),..Default::default()};s.layout();
+        let mut area=RECT::default();unsafe{GetClientRect(h,&mut area)?;}
+        capture(s,area,&directory.join("review-pending.bmp"))?;
+        if s.hits.len()!=1 {return Err("Review filter did not render pending task".into());}
+        s.x=s.px(400);s.layout();capture(s,area,&directory.join("review-columns.bmp"))?;
+        if s.hits.len()!=1 {return Err("Scrolling review columns hid the pending task".into());}
+        s.x=0;s.layout();
+        let task=s.project.as_ref().unwrap().tasks.iter().find(|t|t.title.starts_with("[SSH-02]")).unwrap().clone();
+        s.selected=Some(task.id);
+        let revision=s.project.as_ref().unwrap().revision;
+        SMOKE_CANCEL_FORM.with(|flag|flag.set(true));s.command(113)?;
+        if s.project.as_ref().unwrap().revision!=revision {return Err("Cancelled archive wrote a revision".into());}
+        let dependencies=serde_json::to_value(&s.project.as_ref().unwrap().dependencies)?;
+        s.command(113)?;
+        if !s.project.as_ref().unwrap().tasks.iter().find(|t|t.id==task.id).unwrap().archived {return Err("Archive dialog did not preserve item".into());}
+        for view in [1,4,5] {s.command(200+view)?;capture(s,area,&directory.join(format!("archived-view-{view}.bmp")))?;}
+        s.command(412)?;capture(s,area,&directory.join("archived-item.bmp"))?;
+        if s.hits.len()!=1 {return Err("Archived item is inaccessible from archive menu".into());}
+        s.command(119)?;
+        let restored=s.project.as_ref().unwrap().tasks.iter().find(|t|t.id==task.id).unwrap();
+        if serde_json::to_value(restored)?!=serde_json::to_value(&task)? || serde_json::to_value(&s.project.as_ref().unwrap().dependencies)?!=dependencies {return Err("Restore lost fields or relationships".into());}
+        report.push("Native classification/review fields, pending filter, archive cancel/confirm, archived graph/gantt/chart, archive menu and restore: OK".into());
+        Ok(())
+    })?;
     let errors = SMOKE_ERRORS.with(|e| e.borrow().clone());
     if !errors.is_empty() {
         return Err(errors.join("\n").into());
@@ -390,7 +604,19 @@ fn capture(state: &mut State, area: RECT, path: &std::path::Path) -> Result<()> 
         let dc = CreateCompatibleDC(Some(screen));
         let bitmap = CreateCompatibleBitmap(screen, area.right.max(1), area.bottom.max(1));
         let old = SelectObject(dc, bitmap.into());
+        let started = std::time::Instant::now();
         state.paint(dc, area);
+        let paint_us = started.elapsed().as_micros();
+        std::fs::write(
+            path.with_extension("json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "project_id":state.project.as_ref().map(|p|p.id),"view":state.view,"view_name":VIEWS[state.view],
+                "dpi":state.dpi,"client":[area.right,area.bottom],"body":[state.body.left,state.body.top,state.body.right,state.body.bottom],
+                "content":[state.content.0,state.content.1],"scroll":[state.x,state.y],"visible_hit_targets":state.hits.len(),
+                "project_items":state.project.as_ref().map_or(0,|p|p.tasks.len()),"paint_microseconds":paint_us,
+                "capture_note":"Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark."
+            }))?,
+        )?;
         let mut info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,

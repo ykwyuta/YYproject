@@ -1,0 +1,1588 @@
+{
+  "frames": [
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        2400,
+        5028
+      ],
+      "dpi": 192,
+      "paint_microseconds": 20972,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 0,
+      "view_name": "カンバン",
+      "visible_hit_targets": 6
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        2400,
+        5028
+      ],
+      "dpi": 192,
+      "paint_microseconds": 863,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 0,
+      "view_name": "カンバン",
+      "visible_hit_targets": 2
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        2500,
+        3960
+      ],
+      "dpi": 192,
+      "paint_microseconds": 5687,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 1,
+      "view_name": "ガント",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        2500,
+        3960
+      ],
+      "dpi": 192,
+      "paint_microseconds": 732,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 1,
+      "view_name": "ガント",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        3600,
+        3000
+      ],
+      "dpi": 192,
+      "paint_microseconds": 4000,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        3600,
+        3000
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1032,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        3600,
+        1080
+      ],
+      "dpi": 192,
+      "paint_microseconds": 23652,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 3,
+      "view_name": "課題一覧",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        3600,
+        1080
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1046,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 3,
+      "view_name": "課題一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        3220,
+        4600
+      ],
+      "dpi": 192,
+      "paint_microseconds": 2347,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 4,
+      "view_name": "依存ネットワーク",
+      "visible_hit_targets": 6
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        3220,
+        4600
+      ],
+      "dpi": 192,
+      "paint_microseconds": 823,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 4,
+      "view_name": "依存ネットワーク",
+      "visible_hit_targets": 2
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        590
+      ],
+      "content": [
+        1074,
+        384
+      ],
+      "dpi": 192,
+      "paint_microseconds": 658,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 5,
+      "view_name": "バーンダウン",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        614,
+        276
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        614,
+        332
+      ],
+      "content": [
+        614,
+        126
+      ],
+      "dpi": 192,
+      "paint_microseconds": 498,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 5,
+      "view_name": "バーンダウン",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        590
+      ],
+      "content": [
+        1074,
+        384
+      ],
+      "dpi": 192,
+      "paint_microseconds": 638,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 6,
+      "view_name": "バーンアップ",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        614,
+        276
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        614,
+        332
+      ],
+      "content": [
+        614,
+        126
+      ],
+      "dpi": 192,
+      "paint_microseconds": 570,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 6,
+      "view_name": "バーンアップ",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        1600,
+        1500
+      ],
+      "dpi": 192,
+      "paint_microseconds": 965,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 7,
+      "view_name": "マスタ",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        1600,
+        1500
+      ],
+      "dpi": 192,
+      "paint_microseconds": 477,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 7,
+      "view_name": "マスタ",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        2400,
+        1332
+      ],
+      "dpi": 192,
+      "paint_microseconds": 11608,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 0,
+      "view_name": "カンバン",
+      "visible_hit_targets": 6
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        2400,
+        1332
+      ],
+      "dpi": 192,
+      "paint_microseconds": 718,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 0,
+      "view_name": "カンバン",
+      "visible_hit_targets": 2
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        1660,
+        1080
+      ],
+      "dpi": 192,
+      "paint_microseconds": 4869,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 1,
+      "view_name": "ガント",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        1660,
+        1080
+      ],
+      "dpi": 192,
+      "paint_microseconds": 823,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 1,
+      "view_name": "ガント",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        3600,
+        840
+      ],
+      "dpi": 192,
+      "paint_microseconds": 5396,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        3600,
+        840
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1031,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        3600,
+        360
+      ],
+      "dpi": 192,
+      "paint_microseconds": 3214,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 3,
+      "view_name": "課題一覧",
+      "visible_hit_targets": 4
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        3600,
+        360
+      ],
+      "dpi": 192,
+      "paint_microseconds": 996,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 3,
+      "view_name": "課題一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        5520,
+        1000
+      ],
+      "dpi": 192,
+      "paint_microseconds": 973,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 4,
+      "view_name": "依存ネットワーク",
+      "visible_hit_targets": 4
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        5520,
+        1000
+      ],
+      "dpi": 192,
+      "paint_microseconds": 546,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 4,
+      "view_name": "依存ネットワーク",
+      "visible_hit_targets": 2
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        590
+      ],
+      "content": [
+        1074,
+        384
+      ],
+      "dpi": 192,
+      "paint_microseconds": 636,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 5,
+      "view_name": "バーンダウン",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        614,
+        276
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        614,
+        332
+      ],
+      "content": [
+        614,
+        126
+      ],
+      "dpi": 192,
+      "paint_microseconds": 516,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 5,
+      "view_name": "バーンダウン",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        590
+      ],
+      "content": [
+        1074,
+        384
+      ],
+      "dpi": 192,
+      "paint_microseconds": 627,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 6,
+      "view_name": "バーンアップ",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        614,
+        276
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        614,
+        332
+      ],
+      "content": [
+        614,
+        126
+      ],
+      "dpi": 192,
+      "paint_microseconds": 621,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 6,
+      "view_name": "バーンアップ",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        1600,
+        1500
+      ],
+      "dpi": 192,
+      "paint_microseconds": 874,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 7,
+      "view_name": "マスタ",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        1600,
+        1500
+      ],
+      "dpi": 192,
+      "paint_microseconds": 476,
+      "project_id": 2,
+      "project_items": 16,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 7,
+      "view_name": "マスタ",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        2400,
+        1860
+      ],
+      "dpi": 192,
+      "paint_microseconds": 2734,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        1360,
+        0
+      ],
+      "view": 0,
+      "view_name": "カンバン",
+      "visible_hit_targets": 2
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        2400,
+        1860
+      ],
+      "dpi": 192,
+      "paint_microseconds": 565,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        1440,
+        0
+      ],
+      "view": 0,
+      "view_name": "カンバン",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        1660,
+        720
+      ],
+      "dpi": 192,
+      "paint_microseconds": 4286,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 1,
+      "view_name": "ガント",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        1660,
+        720
+      ],
+      "dpi": 192,
+      "paint_microseconds": 503,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 1,
+      "view_name": "ガント",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        3600,
+        600
+      ],
+      "dpi": 192,
+      "paint_microseconds": 2626,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        3600,
+        600
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1117,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        556
+      ],
+      "content": [
+        3600,
+        240
+      ],
+      "dpi": 192,
+      "paint_microseconds": 5683,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 3,
+      "view_name": "課題一覧",
+      "visible_hit_targets": 2
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        3600,
+        240
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1340,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 3,
+      "view_name": "課題一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        590
+      ],
+      "content": [
+        460,
+        2000
+      ],
+      "dpi": 192,
+      "paint_microseconds": 608,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 4,
+      "view_name": "依存ネットワーク",
+      "visible_hit_targets": 2
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        276
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        332
+      ],
+      "content": [
+        460,
+        2000
+      ],
+      "dpi": 192,
+      "paint_microseconds": 404,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 4,
+      "view_name": "依存ネットワーク",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        590
+      ],
+      "content": [
+        1074,
+        384
+      ],
+      "dpi": 192,
+      "paint_microseconds": 636,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 5,
+      "view_name": "バーンダウン",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        614,
+        276
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        614,
+        332
+      ],
+      "content": [
+        614,
+        126
+      ],
+      "dpi": 192,
+      "paint_microseconds": 517,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 5,
+      "view_name": "バーンダウン",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        590
+      ],
+      "content": [
+        1074,
+        384
+      ],
+      "dpi": 192,
+      "paint_microseconds": 664,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 6,
+      "view_name": "バーンアップ",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        614,
+        276
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        614,
+        332
+      ],
+      "content": [
+        614,
+        126
+      ],
+      "dpi": 192,
+      "paint_microseconds": 628,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 6,
+      "view_name": "バーンアップ",
+      "visible_hit_targets": 0
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1040,
+        556
+      ],
+      "content": [
+        1600,
+        1500
+      ],
+      "dpi": 192,
+      "paint_microseconds": 965,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 7,
+      "view_name": "マスタ",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        580,
+        242
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        580,
+        298
+      ],
+      "content": [
+        1600,
+        1500
+      ],
+      "dpi": 192,
+      "paint_microseconds": 459,
+      "project_id": 3,
+      "project_items": 10,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 7,
+      "view_name": "マスタ",
+      "visible_hit_targets": 1
+    }
+  ],
+  "additional_frames": [
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        556
+      ],
+      "content": [
+        3600,
+        180
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1687,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        556
+      ],
+      "content": [
+        3600,
+        180
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1081,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        800,
+        0
+      ],
+      "view": 2,
+      "view_name": "タスク一覧",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        556
+      ],
+      "content": [
+        2400,
+        276
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1587,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        960,
+        0
+      ],
+      "view": 0,
+      "view_name": "カンバン",
+      "visible_hit_targets": 1
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        556
+      ],
+      "content": [
+        2500,
+        3900
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1223,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 1,
+      "view_name": "ガント",
+      "visible_hit_targets": 5
+    },
+    {
+      "body": [
+        0,
+        150,
+        1040,
+        500
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        556
+      ],
+      "content": [
+        3220,
+        4800
+      ],
+      "dpi": 192,
+      "paint_microseconds": 1534,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 4,
+      "view_name": "依存ネットワーク",
+      "visible_hit_targets": 6
+    },
+    {
+      "body": [
+        0,
+        150,
+        1074,
+        534
+      ],
+      "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+      "client": [
+        1074,
+        556
+      ],
+      "content": [
+        1074,
+        384
+      ],
+      "dpi": 192,
+      "paint_microseconds": 683,
+      "project_id": 1,
+      "project_items": 64,
+      "scroll": [
+        0,
+        0
+      ],
+      "view": 5,
+      "view_name": "バーンダウン",
+      "visible_hit_targets": 0
+    }
+  ],
+  "checks": [
+    "カンバン: 1100x700 client=1040x556 body=150..500 targets=3",
+    "ガント: 1100x700 client=1074x556 body=150..500 targets=3",
+    "タスク一覧: 1100x700 client=1074x556 body=150..500 targets=2",
+    "課題一覧: 1100x700 client=1074x556 body=150..500 targets=1",
+    "依存ネットワーク: 1100x700 client=1040x590 body=150..534 targets=3",
+    "バーンダウン: 1100x700 client=1074x590 body=150..534 targets=0",
+    "バーンアップ: 1100x700 client=1074x590 body=150..534 targets=0",
+    "マスタ: 1100x700 client=1074x556 body=150..500 targets=1",
+    "カンバン: 640x480 client=580x298 body=150..242 targets=2",
+    "ガント: 640x480 client=580x298 body=150..242 targets=1",
+    "タスク一覧: 640x480 client=580x298 body=150..242 targets=1",
+    "課題一覧: 640x480 client=580x298 body=150..242 targets=1",
+    "依存ネットワーク: 640x480 client=580x298 body=150..242 targets=2",
+    "バーンダウン: 640x480 client=614x332 body=150..276 targets=0",
+    "バーンアップ: 640x480 client=614x332 body=150..276 targets=0",
+    "マスタ: 640x480 client=580x298 body=150..242 targets=1",
+    "Native reopening/progress and schedule cancel/confirmation/read-only details: OK",
+    "Native task/master forms, AI refresh, multiline/master preservation, project switching, eight views at two sizes, real client hit tests and kanban drag: OK",
+    "Demo project=1 view=カンバン width=1100 visible=6 content=2400x5028 viewport=1040x350: rendered",
+    "Demo project=1 view=ガント width=1100 visible=5 content=2500x3960 viewport=1040x350: rendered",
+    "Demo project=1 view=タスク一覧 width=1100 visible=5 content=3600x3000 viewport=1040x350: rendered",
+    "Demo project=1 view=課題一覧 width=1100 visible=5 content=3600x1080 viewport=1040x350: rendered",
+    "Demo project=1 view=依存ネットワーク width=1100 visible=6 content=3220x4600 viewport=1040x350: rendered",
+    "Demo project=1 view=バーンダウン width=1100 visible=0 content=1074x384 viewport=1074x384: rendered",
+    "Demo project=1 view=バーンアップ width=1100 visible=0 content=1074x384 viewport=1074x384: rendered",
+    "Demo project=1 view=マスタ width=1100 visible=5 content=1600x1500 viewport=1040x350: rendered",
+    "Demo project=1 view=カンバン width=640 visible=2 content=2400x5028 viewport=580x92: rendered",
+    "Demo project=1 view=ガント width=640 visible=1 content=2500x3960 viewport=580x92: rendered",
+    "Demo project=1 view=タスク一覧 width=640 visible=1 content=3600x3000 viewport=580x92: rendered",
+    "Demo project=1 view=課題一覧 width=640 visible=1 content=3600x1080 viewport=580x92: rendered",
+    "Demo project=1 view=依存ネットワーク width=640 visible=2 content=3220x4600 viewport=580x92: rendered",
+    "Demo project=1 view=バーンダウン width=640 visible=0 content=614x126 viewport=614x126: rendered",
+    "Demo project=1 view=バーンアップ width=640 visible=0 content=614x126 viewport=614x126: rendered",
+    "Demo project=1 view=マスタ width=640 visible=1 content=1600x1500 viewport=580x92: rendered",
+    "Demo project=2 view=カンバン width=1100 visible=6 content=2400x1332 viewport=1040x350: rendered",
+    "Demo project=2 view=ガント width=1100 visible=5 content=1660x1080 viewport=1040x350: rendered",
+    "Demo project=2 view=タスク一覧 width=1100 visible=5 content=3600x840 viewport=1040x350: rendered",
+    "Demo project=2 view=課題一覧 width=1100 visible=4 content=3600x360 viewport=1040x350: rendered",
+    "Demo project=2 view=依存ネットワーク width=1100 visible=4 content=5520x1000 viewport=1040x350: rendered",
+    "Demo project=2 view=バーンダウン width=1100 visible=0 content=1074x384 viewport=1074x384: rendered",
+    "Demo project=2 view=バーンアップ width=1100 visible=0 content=1074x384 viewport=1074x384: rendered",
+    "Demo project=2 view=マスタ width=1100 visible=5 content=1600x1500 viewport=1040x350: rendered",
+    "Demo project=2 view=カンバン width=640 visible=2 content=2400x1332 viewport=580x92: rendered",
+    "Demo project=2 view=ガント width=640 visible=1 content=1660x1080 viewport=580x92: rendered",
+    "Demo project=2 view=タスク一覧 width=640 visible=1 content=3600x840 viewport=580x92: rendered",
+    "Demo project=2 view=課題一覧 width=640 visible=1 content=3600x360 viewport=580x92: rendered",
+    "Demo project=2 view=依存ネットワーク width=640 visible=2 content=5520x1000 viewport=580x92: rendered",
+    "Demo project=2 view=バーンダウン width=640 visible=0 content=614x126 viewport=614x126: rendered",
+    "Demo project=2 view=バーンアップ width=640 visible=0 content=614x126 viewport=614x126: rendered",
+    "Demo project=2 view=マスタ width=640 visible=1 content=1600x1500 viewport=580x92: rendered",
+    "Demo project=3 view=カンバン width=1100 visible=2 content=2400x1860 viewport=1040x350: rendered",
+    "Demo project=3 view=ガント width=1100 visible=5 content=1660x720 viewport=1040x350: rendered",
+    "Demo project=3 view=タスク一覧 width=1100 visible=5 content=3600x600 viewport=1040x350: rendered",
+    "Demo project=3 view=課題一覧 width=1100 visible=2 content=3600x240 viewport=1074x350: rendered",
+    "Demo project=3 view=依存ネットワーク width=1100 visible=2 content=460x2000 viewport=1040x384: rendered",
+    "Demo project=3 view=バーンダウン width=1100 visible=0 content=1074x384 viewport=1074x384: rendered",
+    "Demo project=3 view=バーンアップ width=1100 visible=0 content=1074x384 viewport=1074x384: rendered",
+    "Demo project=3 view=マスタ width=1100 visible=5 content=1600x1500 viewport=1040x350: rendered",
+    "Demo project=3 view=カンバン width=640 visible=1 content=2400x1860 viewport=580x92: rendered",
+    "Demo project=3 view=ガント width=640 visible=1 content=1660x720 viewport=580x92: rendered",
+    "Demo project=3 view=タスク一覧 width=640 visible=1 content=3600x600 viewport=580x92: rendered",
+    "Demo project=3 view=課題一覧 width=640 visible=1 content=3600x240 viewport=580x92: rendered",
+    "Demo project=3 view=依存ネットワーク width=640 visible=1 content=460x2000 viewport=580x126: rendered",
+    "Demo project=3 view=バーンダウン width=640 visible=0 content=614x126 viewport=614x126: rendered",
+    "Demo project=3 view=バーンアップ width=640 visible=0 content=614x126 viewport=614x126: rendered",
+    "Demo project=3 view=マスタ width=640 visible=1 content=1600x1500 viewport=580x92: rendered",
+    "Search/unassigned filters, completed-only Kanban and clear action: OK",
+    "Native classification/review fields, pending filter, archive cancel/confirm, archived graph/gantt/chart, archive menu and restore: OK"
+  ]
+}
