@@ -12,6 +12,12 @@ pub(super) fn width(p: &Project, dpi: i32) -> i32 {
     (((last - first).num_days().max(1) + 1) * 20 + 120) as i32 * dpi / 96
 }
 pub(super) fn paint(dc: HDC, p: &Project, v: timeline::Viewport, up: bool) {
+    paint_impl(dc, p, v, up, false);
+}
+pub(super) fn paint_counts(dc: HDC, p: &Project, v: timeline::Viewport) {
+    paint_impl(dc, p, v, false, true);
+}
+fn paint_impl(dc: HDC, p: &Project, v: timeline::Viewport, up: bool, counts: bool) {
     let px = |n: i32| n * v.dpi / 96;
     let a = v.body;
     let plot = rect(
@@ -99,12 +105,16 @@ pub(super) fn paint(dc: HDC, p: &Project, v: timeline::Viewport, up: bool) {
             COLORREF(0xe0e0e0),
         );
     }
-    let max = p
+    let mut max = p
         .history
         .iter()
         .map(|s| s.scope.max(s.remaining).max(s.completed))
         .fold(1.0, f64::max);
-    let ticks = ((plot.bottom - plot.top) / px(28)).clamp(1, 4);
+    let ticks = ((plot.bottom - plot.top) / px(28))
+        .clamp(1, if counts { (max as i32).clamp(1, 4) } else { 4 });
+    if counts {
+        max = (max / f64::from(ticks)).ceil() * f64::from(ticks);
+    }
     for i in 0..=ticks {
         let y = plot.bottom - (plot.bottom - plot.top) * i / ticks;
         line(dc, (plot.left, y), (plot.right, y), COLORREF(0xe5e5e5));
@@ -158,7 +168,11 @@ pub(super) fn paint(dc: HDC, p: &Project, v: timeline::Viewport, up: bool) {
         label(
             dc,
             rect(a.left, y - px(12), px(70), px(24)),
-            &format!("{:.1}h", max * i as f64 / f64::from(ticks)),
+            &if counts {
+                format!("{:.0}件", max * i as f64 / f64::from(ticks))
+            } else {
+                format!("{:.1}h", max * i as f64 / f64::from(ticks))
+            },
             black,
         );
     }
@@ -177,7 +191,9 @@ pub(super) fn paint(dc: HDC, p: &Project, v: timeline::Viewport, up: bool) {
     label(
         dc,
         rect(a.left + px(75), a.top, a.right - a.left - px(75), px(30)),
-        if up {
+        if counts {
+            "未完了件数（青）— 完了・中止を除外、再オープンを加算"
+        } else if up {
             "完了工数（緑） / 総工数（灰）"
         } else {
             "残工数（青）"

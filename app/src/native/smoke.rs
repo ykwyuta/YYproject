@@ -333,29 +333,32 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
     unsafe {
         let _ = UpdateWindow(h);
     }
-    // At 96 DPI both fixture cards fit in the 640x480 window. Derive a
-    // shorter viewport from the actual layout so edge scrolling has overflow
-    // at every DPI, rather than waiting for an impossible scroll position.
-    let shrink = APP.with(|a| {
+    // Derive the scroll viewport from the actual DPI, wrapped tab rows and
+    // client area. The dedicated management tabs can wrap even on a tiny window.
+    let (body_top, target_height, footer) = APP.with(|a| {
         let a = a.borrow();
         let s = a.as_ref().unwrap();
-        (s.body.bottom - s.body.top - s.content.1 + s.px(48)).max(0)
+        (
+            s.body.top,
+            (s.content.1 - s.px(48)).clamp(s.px(64), s.px(240)),
+            s.px(28),
+        )
     });
-    if shrink > 0 {
-        let mut frame = RECT::default();
-        unsafe {
-            GetWindowRect(h, &mut frame)?;
-            SetWindowPos(
-                h,
-                None,
-                0,
-                0,
-                frame.right - frame.left,
-                frame.bottom - frame.top - shrink,
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            )?;
-            let _ = UpdateWindow(h);
-        }
+    let mut frame = RECT::default();
+    let mut client = RECT::default();
+    unsafe {
+        GetWindowRect(h, &mut frame)?;
+        GetClientRect(h, &mut client)?;
+        SetWindowPos(
+            h,
+            None,
+            0,
+            0,
+            frame.right - frame.left,
+            frame.bottom - frame.top + body_top + target_height + footer - client.bottom,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        )?;
+        let _ = UpdateWindow(h);
     }
     pump_until(|| {
         APP.with(|a| {
@@ -624,10 +627,11 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
     report.push(
         "Native reopening/progress and schedule cancel/confirmation/read-only details: OK".into(),
     );
-    report.push("Native task/master forms, AI refresh, multiline/master preservation, project switching, eight views at two sizes, real client hit tests and kanban drag: OK".into());
+    report.push("Native task/master forms, AI refresh, multiline/master preservation, project switching, eleven views at two sizes, real client hit tests and kanban drag: OK".into());
     report.push("Kanban pointer preview, target column, timer-driven edge scrolling, persisted drop, click threshold, same-column no-op, Escape/capture/outside/right-click/deactivation cancellation: OK".into());
     report.push("Native task context menu: edit and five status actions, popup cancellation without saving: OK".into());
     super::advanced::run(h, directory, &mut report)?;
+    super::cases::smoke_test(h, directory, &mut report)?;
     let demo_path = directory.join("yyproject-demo.sqlite3");
     std::fs::copy(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo/yyproject-demo.sqlite3"),

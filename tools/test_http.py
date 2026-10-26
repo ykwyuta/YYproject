@@ -148,6 +148,13 @@ def main():
             assert sum(not r['isError'] for r in results) == 1
             audits = data(server.tool(alice, a, 'audit_list', {'project_id': pid}))['changes']
             assert len(audits) == 2 and all(row['actor'] == 'alice' for row in audits)
+            current = data(server.tool(alice, a, 'project_get', {'project_id': pid}))
+            case = data(server.tool(alice, a, 'project_change', {'project_id': pid, 'expected_revision': current['revision'], 'actor': 'spoofed',
+                        'change': {'operation': 'save_task', 'task': {'title': 'HTTP bug', 'kind': 'bug', 'include_in_effort': False,
+                                   'case': {'detected_at': '2026-01-01T09:00:00Z', 'cause': 'HTTP原因', 'permanent_difficulty': 'high'}}}}))
+            statistics = data(server.tool(bob, b, 'case_statistics', {'project_id': pid, 'kind': 'bug', 'from': '2026-01-01', 'to': '2026-01-03'}))
+            assert statistics['total'] == 1 and statistics['daily'][-1]['open'] == 1 and statistics['causes'] == {'HTTP原因': 1}
+            assert case['tasks'][-1]['case']['permanent_difficulty'] == 'high'
             assert server.request(alice, session=a, method='DELETE')[0] == 204
             assert server.request(alice, {'jsonrpc': '2.0', 'id': 3, 'method': 'ping'}, a)[0] == 404
             assert server.request(alice, session=a, method='GET')[0] == 404

@@ -1,4 +1,5 @@
 //! Shared transactional project model for native UI and MCP.
+pub mod cases;
 mod storage;
 pub mod table;
 use chrono::{Datelike, Days, NaiveDate, Utc};
@@ -67,6 +68,7 @@ pub enum Kind {
     #[default]
     Task,
     Issue,
+    Bug,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +91,7 @@ pub struct Master {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Task {
+    pub case: Option<Box<cases::CaseData>>,
     pub parent: Option<i64>,
     pub milestone: bool,
     pub id: i64,
@@ -181,6 +184,7 @@ impl ReviewState {
 impl Default for Task {
     fn default() -> Self {
         Self {
+            case: None,
             id: 0,
             parent: None,
             milestone: false,
@@ -240,9 +244,13 @@ pub struct TaskFilter {
 impl TaskFilter {
     pub fn validate(&self) -> Result<()> {
         if self.query.len() > 4096
-            || self.columns.len() > table::COLUMNS.len()
+            || self.columns.len() > table::COLUMNS.len() + table::CASE_COLUMNS.len()
             || self.columns.iter().any(|(key, value)| {
-                !table::COLUMNS.iter().any(|c| c.key == key) || value.len() > 1024 * 1024
+                !table::COLUMNS
+                    .iter()
+                    .chain(table::CASE_COLUMNS)
+                    .any(|c| c.key == key)
+                    || value.len() > 1024 * 1024
             })
         {
             return Err(invalid("Invalid task filter column or search size"));
@@ -390,6 +398,11 @@ fn name(value: &str) -> Result<()> {
     }
 }
 impl Project {
+    pub fn preview_change(&self, change: &Change) -> Result<Self> {
+        let mut preview = self.clone();
+        preview.change(change)?;
+        Ok(preview)
+    }
     pub fn matches_filter(&self, filter: &TaskFilter, task: &Task) -> bool {
         if !filter.matches_base(task, false) {
             return false;
@@ -423,6 +436,17 @@ impl Project {
             return true;
         }
         let needle = filter.query.to_lowercase();
+        if task.case.as_ref().is_some_and(|d| {
+            serde_json::to_value(d).ok().is_some_and(|v| {
+                v.as_object().is_some_and(|o| {
+                    o.values()
+                        .filter_map(|v| v.as_str())
+                        .any(|s| s.to_lowercase().contains(&needle))
+                })
+            })
+        }) {
+            return true;
+        }
         [&task.title, &task.description, &task.review_note]
             .iter()
             .any(|s| s.to_lowercase().contains(&needle))
@@ -456,6 +480,7 @@ impl Project {
     fn save_task(&mut self, task: &Task) -> Result<()> {
         let mut task = task.clone();
         let previous = self.tasks.iter().find(|t| t.id == task.id);
+        cases::prepare(previous, &mut task)?;
         if previous.is_some_and(|t| t.status == Status::Done)
             && !matches!(task.status, Status::Done | Status::Cancelled)
             && task.progress >= 100
@@ -567,6 +592,12 @@ impl Project {
         let mut ids = BTreeSet::new();
         for t in &self.tasks {
             name(&t.title)?;
+            if let Some(data) = &t.case {
+                if t.kind == Kind::Task {
+                    return Err(invalid("Tasks cannot contain investigation data"));
+                }
+                cases::validate(data, t.status)?;
+            }
             if [t.start, t.due, t.completed_on]
                 .into_iter()
                 .flatten()
@@ -673,7 +704,7 @@ impl Project {
                 return Err(invalid("Pending or rejected review cannot be completed"));
             }
             let mut related = BTreeSet::new();
-            if !t.related_tasks.is_empty() && t.kind != Kind::Issue {
+            if !t.related_tasks.is_empty() && t.kind == Kind::Task {
                 return Err(invalid("Only issues can link to response tasks"));
             }
             for id in &t.related_tasks {
@@ -1135,8 +1166,8 @@ impl SqliteStore {
             if tables != 0 {
                 return Err(invalid("This SQLite file is not a yyproject database"));
             }
-            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=4; COMMIT;")?;
-        } else if application != 1499025482 || !matches!(version, 1..=4) {
+            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=5; COMMIT;")?;
+        } else if application != 1499025482 || !matches!(version, 1..=5) {
             return Err(invalid("Unsupported yyproject database format"));
         }
         if !read_only {
@@ -1223,7 +1254,7 @@ impl SqliteStore {
                 "{\"operation\":\"create\"}"
             ],
         )?;
-        tx.pragma_update(None, "user_version", 4)?;
+        tx.pragma_update(None, "user_version", 5)?;
         tx.commit()?;
         Ok(p)
     }
@@ -1275,7 +1306,7 @@ impl SqliteStore {
                 serde_json::to_string(change)?
             ],
         )?;
-        tx.pragma_update(None, "user_version", 4)?;
+        tx.pragma_update(None, "user_version", 5)?;
         tx.commit()?;
         Ok(p)
     }

@@ -208,7 +208,7 @@ pub(super) fn paint(
     let rows = p
         .ordered_tasks()
         .into_iter()
-        .filter(|(t, _)| p.matches_filter(filter, t))
+        .filter(|(t, _)| t.kind == Kind::Task && p.matches_filter(filter, t))
         .collect::<Vec<_>>();
     let baseline = x + (options.as_of - first).num_days() as i32 * day + day / 2;
     let mut previous = (baseline, base);

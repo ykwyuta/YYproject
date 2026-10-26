@@ -1,6 +1,6 @@
 # Streamable HTTPサーバーとPAT
 
-YYprojectを常駐プロセスとして起動し、`http://127.0.0.1:8740/mcp` をMCPエンドポイントとして提供できます。SQLiteとPostgreSQLに対応し、stdioと同じ8個のツールを使用します。GUIとは別に起動します。
+YYprojectを常駐プロセスとして起動し、`http://127.0.0.1:8740/mcp` をMCPエンドポイントとして提供できます。SQLiteとPostgreSQLに対応し、stdioと同じ9個のツールを使用します。GUIとは別に起動します。
 
 ## ユーザーとPATを作成する
 

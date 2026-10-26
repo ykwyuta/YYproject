@@ -83,6 +83,8 @@ def main():
         assert new_audit[-1][4]==revision+2
         before=target.read_bytes();duplicate=subprocess.run([str(exe),'--export-sqlite',str(target)],capture_output=True,timeout=30);assert duplicate.returncode!=0 and target.read_bytes()==before
         created=data(pg_tool(exe,'project_create',{'name':'ID継続','start':'2026-01-01','finish':'2026-12-31','actor':'test'}));assert created['id']==2
+        from test_cases import exercise_cases
+        exercise_cases(exe)
     print('PostgreSQL real MCP, full-text/column filters, hierarchy, milestone, master batch, actual completion date, revisions, read-only, batch rollback, empty-target guard, all audit rows, SQLite round-trip and ID sequences: OK')
 
 if __name__=='__main__':main()

@@ -1,11 +1,12 @@
 # YYproject
 
-タスク・課題・進捗をSQLiteまたはPostgreSQLで管理するRustアプリです。Windows GUI (`yyprojectw`) と、Windows／Linux向けstdio MCPサーバー (`yyproject`) を提供します。
+タスク・バグ・課題・進捗をSQLiteまたはPostgreSQLで管理するRustアプリです。Windows GUI (`yyprojectw`) と、Windows／Linux向けstdio MCPサーバー (`yyproject`) を提供します。
 
 <img src="app/res/yyproject-256.png" alt="YYproject" width="96">
 
 カンバン、ガント、タスク／課題一覧、依存ネットワーク、バーンダウン／バーンアップ、カテゴリ・担当者・休日マスタに対応します。優先度・重大度・レビュー、課題と対応タスクの関連付け、工数算入の設定、項目の保管・復元にも対応します。GUIとAIは同じモデルを使用し、更新競合を検出します。親子・孫タスク、3階層カテゴリ、セルの範囲コピー・編集・行移動、列の絞り込み・全文検索、4段ガント・稲妻線・マイルストーン、選択列のCSV出力に対応します。マスタの直接編集、複数行の属性一括変更・実績完了日、列幅・行高の境界ドラッグ、日次チャートと依存系統の強調にも対応します。SQLiteとUDEV Gothicフォントは同梱されます。
 
+- [バグ・課題管理と原因分析・収束統計](docs/user/bug-issue.md)
 - [PostgreSQL・Docker Compose・双方向移行](docs/user/postgresql.md)
 - [Jira用CSV出力と取り込み手順](docs/user/jira-csv.md)
 - [Streamable HTTPサーバー・PAT認証](docs/user/mcp-http.md)

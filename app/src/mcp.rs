@@ -33,10 +33,10 @@ fn tools() -> Value {
         ),
         (
             "project_change",
-            "Atomically change a project using expected_revision from project_get. A conflict never overwrites GUI or other AI edits. Task effort is hours; duration_days is working days. Master kinds: category, assignee, holiday. New task/master id is 0. Task status: todo, doing, blocked, done, cancelled; kind: task or issue. Omitted task fields use defaults; read existing task before replacing it.",
+            "Atomically change a project using expected_revision from project_get. A conflict never overwrites GUI or other AI edits. Task effort is hours; duration_days is working days. Master kinds: category, assignee, holiday. New task/master id is 0. Task status: todo, doing, blocked, done, cancelled; kind: task, bug or issue. Bug/issue investigation data is in case. Omitted task fields use defaults; read existing task before replacing it.",
             schema(
                 json!({"project_id":id,"expected_revision":id,"actor":{"type":"string"},"change":{"oneOf":[
-                    schema(json!({"operation":{"const":"save_task"},"task":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"title":{"type":"string"},"description":{"type":"string"},"kind":{"enum":["task","issue"]},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"assignee":{"type":["integer","null"]},"category":{"type":["integer","null"]},"start":{"type":["string","null"],"format":"date"},"due":{"type":["string","null"],"format":"date"},"duration_days":{"type":"integer","minimum":0,"maximum":3660},"estimate":{"type":"number","minimum":0},"progress":{"type":"integer","minimum":0,"maximum":100},"priority":{"enum":["low","normal","high","critical"]},"severity":{"enum":["unspecified","minor","major","critical"]},"review":{"enum":["not_required","pending","approved","changes_requested"]},"reviewer":{"type":["integer","null"]},"review_note":{"type":"string"},"include_in_effort":{"type":"boolean","default":true},"related_tasks":{"type":"array","items":id,"uniqueItems":true,"maxItems":1000},"archived":{"type":"boolean","default":false}},"required":["title"],"additionalProperties":false}}),&["operation","task"]),
+                    schema(json!({"operation":{"const":"save_task"},"task":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"title":{"type":"string"},"description":{"type":"string"},"kind":{"enum":["task","issue","bug"]},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"assignee":{"type":["integer","null"]},"category":{"type":["integer","null"]},"start":{"type":["string","null"],"format":"date"},"due":{"type":["string","null"],"format":"date"},"duration_days":{"type":"integer","minimum":0,"maximum":3660},"estimate":{"type":"number","minimum":0},"progress":{"type":"integer","minimum":0,"maximum":100},"priority":{"enum":["low","normal","high","critical"]},"severity":{"enum":["unspecified","minor","major","critical"]},"review":{"enum":["not_required","pending","approved","changes_requested"]},"reviewer":{"type":["integer","null"]},"review_note":{"type":"string"},"include_in_effort":{"type":"boolean","default":true},"related_tasks":{"type":"array","items":id,"uniqueItems":true,"maxItems":1000},"archived":{"type":"boolean","default":false}},"required":["title"],"additionalProperties":false}}),&["operation","task"]),
                     schema(json!({"operation":{"const":"remove_task"},"id":id}),&["operation","id"]),
                     schema(json!({"operation":{"const":"restore_task"},"id":id}),&["operation","id"]),
                     schema(json!({"operation":{"const":"save_master"},"master":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"name":{"type":"string"},"kind":{"enum":["category","assignee","holiday"]},"date":{"type":["string","null"],"format":"date"}},"required":["id","name","kind"],"additionalProperties":false}}),&["operation","master"]),
@@ -68,9 +68,9 @@ fn tools() -> Value {
         ),
         (
             "task_list",
-            "Page tasks/issues. Optional query, status, kind, assignee, category, unassigned, incomplete, overdue_before, priority, severity, review and archived filters (AND). overdue_before excludes done/cancelled. archived defaults to false; true selects archived items only. Page size is capped at 200.",
+            "Page tasks, bugs and issues. Optional query, status, kind, assignee, category, unassigned, incomplete, overdue_before, priority, severity, review and archived filters (AND). overdue_before excludes done/cancelled. archived defaults to false; true selects archived items only. Page size is capped at 200.",
             schema(
-                json!({"project_id":id,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":200},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"kind":{"enum":["task","issue"]},"query":{"type":"string"},"assignee":id,"category":id,"unassigned":{"type":"boolean"},"incomplete":{"type":"boolean"},"overdue_before":date,"priority":{"enum":["low","normal","high","critical"]},"severity":{"enum":["unspecified","minor","major","critical"]},"review":{"enum":["not_required","pending","approved","changes_requested"]},"archived":{"type":"boolean","default":false}}),
+                json!({"project_id":id,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":200},"status":{"enum":["todo","doing","blocked","done","cancelled"]},"kind":{"enum":["task","issue","bug"]},"query":{"type":"string"},"assignee":id,"category":id,"unassigned":{"type":"boolean"},"incomplete":{"type":"boolean"},"overdue_before":date,"priority":{"enum":["low","normal","high","critical"]},"severity":{"enum":["unspecified","minor","major","critical"]},"review":{"enum":["not_required","pending","approved","changes_requested"]},"archived":{"type":"boolean","default":false}}),
                 &["project_id"],
             ),
             true,
@@ -87,6 +87,14 @@ fn tools() -> Value {
     ] {
         tools.push(json!({"name":name,"description":description,"inputSchema":input,"annotations":{"readOnlyHint":read_only,"destructiveHint":!read_only,"openWorldHint":false}}));
     }
+    let mut filters =
+        tools.iter().find(|t| t["name"] == "task_list").unwrap()["inputSchema"]["properties"]
+            .clone();
+    for key in ["project_id", "offset", "limit"] {
+        filters.as_object_mut().unwrap().remove(key);
+    }
+    filters["columns"] = json!({"type":"object","additionalProperties":{"type":"string"}});
+    tools.push(json!({"name":"case_statistics","description":"Read bug/issue daily convergence counts, cause/phase/difficulty distributions and mean resolution hours. UTC calendar days; reopening adds open items again; cancelled is separate. Current filters/attributes define the cohort. Undated legacy items are reported separately, not assigned invented dates. At most 3660 days.","inputSchema":schema(json!({"project_id":id,"kind":{"enum":["bug","issue"]},"from":date,"to":date,"filter":schema(filters,&[])}),&["project_id","kind","from","to"]),"annotations":{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false}}));
     for tool in &mut tools {
         if tool["name"] == "project_change" {
             let variants = tool["inputSchema"]["properties"]["change"]["oneOf"]
@@ -100,6 +108,17 @@ fn tools() -> Value {
                 json!({"type":["integer","null"],"minimum":1});
             variants[0]["properties"]["task"]["properties"]["completed_on"] =
                 json!({"type":["string","null"],"format":"date"});
+            let mut case_properties = serde_json::Map::new();
+            for (key, value) in serde_json::to_value(yy_project::cases::CaseData::default())
+                .unwrap()
+                .as_object()
+                .unwrap()
+            {
+                case_properties.insert(key.clone(),if key=="transitions" {json!({"type":"array","readOnly":true,"description":"Server maintained; supplied history is ignored on save","items":schema(json!({"at":{"type":"string","format":"date-time"},"status":{"enum":["todo","doing","blocked","done","cancelled"]}}),&["at","status"])})} else if key.ends_with("_at"){json!({"type":["string","null"],"format":"date-time"})}else if key.ends_with("_difficulty"){json!({"enum":["unspecified","low","medium","high","very_high"]})}else{let _=value;json!({"type":"string"})});
+            }
+            let mut case_schema = schema(Value::Object(case_properties), &[]);
+            case_schema["type"] = json!(["object", "null"]);
+            variants[0]["properties"]["task"]["properties"]["case"] = case_schema;
             let master = variants[3]["properties"]["master"].clone();
             variants.push(schema(json!({"operation":{"const":"save_masters"},"masters":{"type":"array","items":master,"minItems":1,"maxItems":2000}}),&["operation","masters"]));
             let mut task = variants[0]["properties"]["task"].clone();
@@ -141,6 +160,7 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
             "columns",
         ],
         "audit_list" => &["project_id", "after"],
+        "case_statistics" => &["project_id", "kind", "from", "to", "filter"],
         "project_create" => &["name", "start", "finish", "actor"],
         "project_change" => &["project_id", "expected_revision", "actor", "change"],
         _ => return Err("Unknown tool".into()),
@@ -190,6 +210,23 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
             json!({"projects":store.list()?.into_iter().map(|(id,name,revision)|json!({"id":id,"name":name,"revision":revision})).collect::<Vec<_>>()})
         }
         "project_get" => serde_json::to_value(store.get(id()?)?)?,
+        "case_statistics" => {
+            let kind = serde_json::from_value(args["kind"].clone())?;
+            let from = serde_json::from_value(args["from"].clone())?;
+            let to = serde_json::from_value(args["to"].clone())?;
+            let filter = if let Some(v) = args.get("filter") {
+                serde_json::from_value(v.clone())?
+            } else {
+                yy_project::TaskFilter::default()
+            };
+            serde_json::to_value(yy_project::cases::statistics(
+                &store.get(id()?)?,
+                kind,
+                from,
+                to,
+                &filter,
+            )?)?
+        }
         "schedule_preview" => serde_json::to_value(store.get(id()?)?.schedule_preview()?)?,
         "removal_preview" => serde_json::to_value(
             store.get(id()?)?.removal_preview(
@@ -430,7 +467,7 @@ mod tests {
         assert_eq!(out.len(), 8);
         assert_eq!(out[0]["error"]["code"], -32000);
         assert_eq!(out[1]["result"]["protocolVersion"], "2025-11-25");
-        assert_eq!(out[2]["result"]["tools"].as_array().unwrap().len(), 8);
+        assert_eq!(out[2]["result"]["tools"].as_array().unwrap().len(), 9);
         assert_eq!(out[4]["result"]["structuredContent"]["revision"], 2);
         assert_eq!(out[5]["result"]["isError"], true);
         assert_eq!(

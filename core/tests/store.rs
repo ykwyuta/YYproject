@@ -753,7 +753,7 @@ fn legacy_documents_keep_effort_defaults_and_only_successful_writes_upgrade_form
     assert_eq!(
         sql.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
     assert!(store.get(p.id).unwrap().tasks[0].archived);
 }

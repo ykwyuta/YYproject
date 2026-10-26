@@ -27,6 +27,7 @@ const AUTO_FORM: u32 = WM_APP + 17;
 const DRAG_TIMER: usize = 2;
 const GRID_FINISH: u32 = WM_APP + 50;
 mod bulk;
+mod cases;
 mod charts;
 mod grid;
 mod master_grid;
@@ -52,7 +53,7 @@ impl CardDrag {
         )
     }
 }
-const VIEWS: [&str; 8] = [
+const VIEWS: [&str; 11] = [
     "カンバン",
     "ガント",
     "タスク一覧",
@@ -61,6 +62,9 @@ const VIEWS: [&str; 8] = [
     "バーンダウン",
     "バーンアップ",
     "マスタ",
+    "バグ一覧",
+    "バグ統計",
+    "課題統計",
 ];
 fn network_family(p: &Project, selected: Option<i64>) -> std::collections::BTreeSet<i64> {
     let Some(id) = selected else {
@@ -103,6 +107,7 @@ struct State {
     view: usize,
     filter: TaskFilter,
     master_kind: MasterKind,
+    case_range: Option<(chrono::NaiveDate, chrono::NaiveDate)>,
     selected: Option<i64>,
     x: i32,
     y: i32,
@@ -616,8 +621,31 @@ fn form(
             )
             .ok()?;
             send(t, WM_SETFONT, font.0 as usize, 0);
-            let labels = if title.starts_with("選択行の属性") {
+            let labels = if title.starts_with("選択行の属性") && title.contains("バグ・課題")
+            {
+                vec![
+                    "担当・分類",
+                    "状態・優先度",
+                    "期限・発生工程",
+                    "原因・検出工程",
+                    "対策難易度",
+                    "検知難易度・完了日時",
+                    "対策予定日時",
+                ]
+            } else if title.starts_with("選択行の属性") {
                 vec!["担当・分類", "状態・優先度", "予定日程", "完了日・進捗"]
+            } else if title.starts_with("バグ管理") || title.starts_with("課題管理") {
+                vec![
+                    "基本情報",
+                    "工程・原因・難易度",
+                    "暫定対策",
+                    "恒久対策",
+                    "発生・検出・報告",
+                    "対策日時",
+                    "確認・関連",
+                    "説明",
+                    "レビュー",
+                ]
             } else if title.starts_with("Jira") {
                 vec!["出力条件", "課題タイプ", "出力列"]
             } else if title.starts_with("CSV") {
@@ -867,7 +895,7 @@ fn task_values(v: &[String]) -> std::result::Result<(), String> {
 }
 impl State {
     fn hit_task(&self, x: i32, y: i32) -> Option<i64> {
-        if matches!(self.view, 2 | 3 | 7) {
+        if matches!(self.view, 2 | 3 | 7 | 8) {
             return self
                 .grid_cell(POINT { x, y })
                 .and_then(|(row, _)| self.grid_rows().get(row).map(|r| r.0));
@@ -893,7 +921,7 @@ impl State {
     }
     fn task_context_menu(&mut self, mut point: POINT) -> Result<()> {
         self.cancel_drag();
-        if !matches!(self.view, 0..=4) {
+        if !matches!(self.view, 0..=4 | 8) {
             return Ok(());
         }
         unsafe {
@@ -915,14 +943,14 @@ impl State {
             } else {
                 let mut client = point;
                 let _ = ScreenToClient(self.hwnd, &mut client);
-                if matches!(self.view, 2 | 3)
+                if matches!(self.view, 2 | 3 | 8)
                     && client.y >= self.body.top
                     && client.y < self.body.top + self.px(30)
                 {
                     return self.column_filter_menu(client);
                 }
                 let clicked = self.hit_task(client.x, client.y);
-                if matches!(self.view, 2 | 3)
+                if matches!(self.view, 2 | 3 | 8)
                     && clicked.is_some_and(|id| !self.selected_task_ids().contains(&id))
                 {
                     self.select_grid_point(client, false);
@@ -934,7 +962,7 @@ impl State {
                 return Ok(());
             };
             let current = task.status;
-            let multi = matches!(self.view, 2 | 3) && self.selected_task_ids().len() > 1;
+            let multi = matches!(self.view, 2 | 3 | 8) && self.selected_task_ids().len() > 1;
             let can_add_child = task.kind == Kind::Task && !task.archived && !multi;
             invalidate(self.hwnd);
             let popup = CreatePopupMenu()?;
@@ -952,7 +980,7 @@ impl State {
                     121,
                     w!("子タスクを追加…"),
                 )?;
-                if matches!(self.view, 2 | 3) {
+                if matches!(self.view, 2 | 3 | 8) {
                     AppendMenuW(popup, MF_STRING, 122, w!("選択行の属性を一括変更…"))?;
                     AppendMenuW(
                         popup,
@@ -1151,9 +1179,11 @@ impl State {
                 .as_ref()
                 .and_then(|p| {
                     Status::ALL.iter().position(|status| {
-                        p.tasks
-                            .iter()
-                            .any(|t| t.status == *status && p.matches_filter(&self.filter, t))
+                        p.tasks.iter().any(|t| {
+                            t.kind == Kind::Task
+                                && t.status == *status
+                                && p.matches_filter(&self.filter, t)
+                        })
                     })
                 })
                 .unwrap_or(0) as i32
@@ -1556,6 +1586,16 @@ impl State {
             .find(|t| Some(t.id) == self.selected)
     }
     fn edit_task(&mut self, new: bool, issue: bool) -> Result<()> {
+        if issue || (!new && self.task().is_some_and(|t| t.kind != Kind::Task)) {
+            return self.edit_case(
+                new,
+                if new {
+                    Kind::Issue
+                } else {
+                    self.task().unwrap().kind
+                },
+            );
+        }
         let p = self
             .project
             .as_ref()
@@ -2051,6 +2091,12 @@ impl State {
             }
             420 => self.search_form()?,
             430 => self.timeline_form()?,
+            440 => self.case_range_form()?,
+            124 => self.edit_case(true, Kind::Bug)?,
+            125 | 126 => {
+                self.command(if id == 125 { 208 } else { 203 })?;
+                self.export_csv_form()?;
+            }
             110 => self.edit_task(true, false)?,
             111 => self.edit_task(true, true)?,
             121 => {
@@ -2067,7 +2113,7 @@ impl State {
             112 => {
                 if self.view == 7 {
                     self.master(false)?;
-                } else if matches!(self.view, 2 | 3) && self.selected_task_ids().len() > 1 {
+                } else if matches!(self.view, 2 | 3 | 8) && self.selected_task_ids().len() > 1 {
                     self.bulk_edit_form()?;
                 } else {
                     self.edit_task(false, false)?;
@@ -2125,7 +2171,7 @@ impl State {
                     "yyproject-help",
                 )?;
             }
-            200..=207 => {
+            200..=210 => {
                 self.view = id - 200;
                 self.grid.all_kinds = false;
                 self.grid.selection = false;
@@ -2235,7 +2281,9 @@ impl State {
                                     p.tasks
                                         .iter()
                                         .filter(|t| {
-                                            t.status == *status && p.matches_filter(&self.filter, t)
+                                            t.kind == Kind::Task
+                                                && t.status == *status
+                                                && p.matches_filter(&self.filter, t)
                                         })
                                         .count()
                                 })
@@ -2256,12 +2304,12 @@ impl State {
                     self.project.as_ref().map_or(0, |p| {
                         p.tasks
                             .iter()
-                            .filter(|t| p.matches_filter(&self.filter, t))
+                            .filter(|t| t.kind == Kind::Task && p.matches_filter(&self.filter, t))
                             .map(|t| self.px(self.timeline.height(t.id)))
                             .sum::<i32>()
                     }) + self.px(96),
                 ),
-                2 | 3 | 7 => (
+                2 | 3 | 7 | 8 => (
                     self.px((0..self.grid_columns().len())
                         .map(|c| self.grid_width(c))
                         .sum()),
@@ -2283,6 +2331,7 @@ impl State {
                         .map_or(r.right, |p| charts::width(p, self.dpi).max(r.right)),
                     self.body.bottom - self.body.top,
                 ),
+                9 | 10 => self.case_chart_size(),
                 _ => (r.right, self.body.bottom - self.body.top),
             };
             self.x = self.x.clamp(0, (self.content.0 - self.body.right).max(0));
@@ -2346,7 +2395,7 @@ impl State {
                             .iter()
                             .filter(|m| m.kind == self.master_kind)
                             .count()
-                    } else if matches!(self.view, 2 | 3) {
+                    } else if matches!(self.view, 2 | 3 | 8) {
                         self.grid_rows().len()
                     } else {
                         p.tasks
@@ -2423,7 +2472,9 @@ impl State {
                             status.label(),
                             p.tasks
                                 .iter()
-                                .filter(|t| t.status == *status && p.matches_filter(&self.filter, t))
+                                .filter(|t| t.kind == Kind::Task
+                                    && t.status == *status
+                                    && p.matches_filter(&self.filter, t))
                                 .count()
                         ),
                         black,
@@ -2431,7 +2482,11 @@ impl State {
                     for (i, t) in p
                         .tasks
                         .iter()
-                        .filter(|t| t.status == *status && p.matches_filter(&self.filter, t))
+                        .filter(|t| {
+                            t.kind == Kind::Task
+                                && t.status == *status
+                                && p.matches_filter(&self.filter, t)
+                        })
                         .enumerate()
                     {
                         let y = top + row + self.px(2) + i as i32 * self.px(120);
@@ -2507,28 +2562,23 @@ impl State {
                             status.label(),
                             p.tasks
                                 .iter()
-                                .filter(|t| t.status == *status && p.matches_filter(&self.filter, t))
+                                .filter(|t| t.kind == Kind::Task
+                                    && t.status == *status
+                                    && p.matches_filter(&self.filter, t))
                                 .count()
                         ),
                         black,
                     );
                 }
             }
-            2 | 3 => {
+            2 | 3 | 8 => {
                 let selected_rows = self.selected_task_ids();
+                let list_kind = self.list_kind();
                 for (i, (t, depth)) in p
                     .ordered_tasks()
                     .into_iter()
                     .filter(|(t, _)| p.matches_filter(&self.filter, t))
-                    .filter(|(t, _)| {
-                        self.grid.all_kinds
-                            || t.kind
-                                == if self.view == 3 {
-                                    Kind::Issue
-                                } else {
-                                    Kind::Task
-                                }
-                    })
+                    .filter(|(t, _)| self.grid.all_kinds || t.kind == list_kind)
                     .enumerate()
                 {
                     let y = self.grid_row_top(i);
@@ -2549,7 +2599,7 @@ impl State {
                         },
                     );
                     let mut cx = x;
-                    for (col, c) in table::COLUMNS.iter().enumerate() {
+                    for (col, c) in self.grid_columns().iter().enumerate() {
                         let w = self.px(self.grid_width(col));
                         if self.grid.contains(i, col) {
                             fill(
@@ -2592,7 +2642,7 @@ impl State {
                 }
                 fill(dc, rect(a.left, a.top, a.right - a.left, row), grey);
                 let mut cx = x;
-                for (col, c) in table::COLUMNS.iter().enumerate() {
+                for (col, c) in self.grid_columns().iter().enumerate() {
                     let w = self.px(self.grid_width(col));
                     let filtered = self.filter.columns.contains_key(c.key);
                     label(
@@ -2719,6 +2769,7 @@ impl State {
                 self.paint_masters(dc, &mut hits);
                 self.hits.extend(hits);
             }
+            9 | 10 => self.paint_case_statistics(dc),
             _ => {}
         }
         if let Some(drag) = self.drag.filter(|d| d.active && self.view == 0) {
@@ -2793,7 +2844,7 @@ impl State {
                 );
             }
         }
-        if matches!(self.view, 2 | 3)
+        if matches!(self.view, 2 | 3 | 8)
             && let Some(drag) = self.drag.filter(|d| d.active)
         {
             let target = self
@@ -2839,6 +2890,8 @@ fn menu() -> windows::core::Result<HMENU> {
                     (102, "プロジェクトを追加".into()),
                     (103, "プロジェクト設定".into()),
                     (104, "プロジェクトをCSV出力…".into()),
+                    (125, "バグ一覧をCSV出力…".into()),
+                    (126, "課題一覧をCSV出力…".into()),
                     (109, "Jira用CSVを出力…".into()),
                     (105, "PostgreSQLへ接続（環境変数）".into()),
                     (107, "現在のSQLiteからPostgreSQLへ移行…".into()),
@@ -2852,6 +2905,7 @@ fn menu() -> windows::core::Result<HMENU> {
                     (110, "タスクを追加".into()),
                     (121, "選択したタスクの子タスクを追加…".into()),
                     (111, "課題を追加".into()),
+                    (124, "バグを追加".into()),
                     (112, "選択項目を編集".into()),
                     (122, "選択行の属性を一括変更…".into()),
                     (123, "選択範囲を下方向にコピー\tCtrl+D".into()),
@@ -2906,6 +2960,10 @@ fn menu() -> windows::core::Result<HMENU> {
                 ],
             ),
             ("ガント設定", vec![(430, "表示起点・列幅・稲妻線…".into())]),
+            (
+                "統計設定",
+                vec![(440, "バグ・課題の集計期間（UTC日付）…".into())],
+            ),
             ("ヘルプ", vec![(140, "使い方 / MCP設定".into())]),
         ];
         for (title, items) in groups {
@@ -3077,15 +3135,15 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     if s.begin_resize(POINT { x, y }) {
                         return Ok(());
                     }
-                    if matches!(s.view, 2 | 3) && GetKeyState(VK_CONTROL.0 as i32) < 0 {
+                    if matches!(s.view, 2 | 3 | 8) && GetKeyState(VK_CONTROL.0 as i32) < 0 {
                         s.toggle_grid_row(POINT { x, y });
                         return Ok(());
                     }
                     s.selected = s.hit_task(x, y);
-                    if matches!(s.view, 2 | 3 | 7) {
+                    if matches!(s.view, 2 | 3 | 7 | 8) {
                         s.select_grid_point(POINT { x, y }, GetKeyState(VK_SHIFT.0 as i32) < 0);
                     }
-                    if (s.view == 0 || (matches!(s.view, 2 | 3) && s.grid.current.1 == 0))
+                    if (s.view == 0 || (matches!(s.view, 2 | 3 | 8) && s.grid.current.1 == 0))
                         && let Some((r, id)) = s.hits.iter().find(|(_, id)| Some(*id) == s.selected)
                     {
                         s.drag = Some(CardDrag {
@@ -3113,7 +3171,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         x: l.0 as u16 as i16 as i32,
                         y: (l.0 >> 16) as u16 as i16 as i32,
                     };
-                    if matches!(s.view, 2 | 3)
+                    if matches!(s.view, 2 | 3 | 8)
                         && let Some(drag) = drag.filter(|d| d.active)
                         && inside(s.body, point.x, point.y)
                     {
@@ -3194,7 +3252,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                 }
                 GRID_FINISH => s.finish_grid_message(w.0 == 1, l.0 != 0),
                 WM_LBUTTONDBLCLK => {
-                    if matches!(s.view, 2 | 3 | 7) {
+                    if matches!(s.view, 2 | 3 | 7 | 8) {
                         s.begin_cell_edit(None)
                     } else {
                         s.command(112)
@@ -3205,7 +3263,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     y: (l.0 >> 16) as u16 as i16 as i32,
                 }),
                 WM_CHAR
-                    if matches!(s.view, 2 | 3 | 7)
+                    if matches!(s.view, 2 | 3 | 7 | 8)
                         && w.0 >= 32
                         && GetKeyState(VK_CONTROL.0 as i32) >= 0 =>
                 {
@@ -3356,7 +3414,7 @@ pub fn run() -> Result<()> {
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             w!("YYProjectFrame"),
-            w!("yyproject — タスク・進捗・課題管理"),
+            w!("yyproject — タスク・バグ・課題・進捗管理"),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_VSCROLL | WS_HSCROLL,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -3459,6 +3517,7 @@ pub fn run() -> Result<()> {
             view: 0,
             filter: TaskFilter::default(),
             master_kind: MasterKind::Category,
+            case_range: None,
             selected: None,
             x: 0,
             y: 0,

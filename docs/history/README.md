@@ -1,5 +1,7 @@
 # 検討経緯・作業記録
 
+- [バグ・課題の専用管理と統計（2026-10-27）](verification/yyproject-cases-2026-10-27.md)
+
 - [yyproject初期方針](proposals/yyproject.md)
 - [移行前の初期実装検証（2026-10-25）](verification/2026-10-25-yyproject.md)
 - [独立リポジトリへの移行（2026-10-25）](verification/2026-10-25-repository-migration.md)

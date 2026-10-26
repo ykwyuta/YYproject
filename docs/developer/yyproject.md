@@ -6,7 +6,7 @@
 
 ## 保存
 
-SQLite 3はrusqliteのbundled機能で同梱。application_idは1499025482、user_versionは3（旧形式1・2も読込可能）。他アプリのDBや未知の版は拒否する。WALとforeign_keysを有効にする。
+SQLite 3はrusqliteのbundled機能で同梱。application_idは1499025482、user_versionは5（旧形式1〜4も読込可能）。他アプリのDBや未知の版は拒否する。WALとforeign_keysを有効にする。
 
 `projects(id,name,revision,document)` はプロジェクト集約をJSONとして保存する。タスク・マスタ・依存関係・日ごとの集計を1トランザクションで検証・保存するため、途中状態を読ませない。`audit(id,project_id,at,actor,revision,change)` にコミットと同じトランザクションで操作を追記する。監査時刻はUTC、日単位の進捗は実行環境のローカル日付を使う。
 
@@ -41,11 +41,11 @@ cargo build --workspace --locked
 python tools/test_mcp.py target/debug/yyproject.exe
 ```
 
-Linuxでは実行ファイルの.exeを外す。GUIはWindows専用で、Linuxの成功をGUIの検証済みとは扱わない。Windowsの `yyprojectw --ui-smoke-test NEW_DIRECTORY` は専用DB・所有するウィンドウだけを使い、入力ダイアログ・マスタ・8画面・サイズ変更・カンバンドラッグを検証する。ディレクトリ内に報告と実描画関数によるBMPを出力する。完了判定はモデル内容と描画範囲。表示待ちの固定sleepは使用しない。
+Linuxでは実行ファイルの.exeを外す。GUIはWindows専用で、Linuxの成功をGUIの検証済みとは扱わない。Windowsの `yyprojectw --ui-smoke-test NEW_DIRECTORY` は専用DB・所有するウィンドウだけを使い、入力ダイアログ・マスタ・11画面・サイズ変更・カンバンドラッグを検証する。ディレクトリ内に報告と実描画関数によるBMPを出力する。完了判定はモデル内容と描画範囲。表示待ちの固定sleepは使用しない。
 
 ## デモ資材の更新
 
-`demo/scenario.json` が題材と時系列の出来事、`app/src/demo.rs` がStore経由の再生処理、`demo/yyproject-demo.sqlite3` が配布DBです。`yyproject --init-demo NEW_DATABASE` で別名へ生成し、すべての接続を閉じてから差し替えます。WAL／SHMファイルをコミットしません。デモ生成・既存ファイル上書き拒否・同梱DBの内容はRust試験で、実MCPと3案件×8画面×2サイズのGUI描画は各スモーク試験で検証します。データを変える場合は `demo/README.md` の件数も更新してください。
+`demo/scenario.json` が題材と時系列の出来事、`app/src/demo.rs` がStore経由の再生処理、`demo/yyproject-demo.sqlite3` が配布DBです。`yyproject --init-demo NEW_DATABASE` で別名へ生成し、すべての接続を閉じてから差し替えます。WAL／SHMファイルをコミットしません。デモ生成・既存ファイル上書き拒否・同梱DBの内容はRust試験で、実MCPと3案件×11画面×2サイズのGUI描画は各スモーク試験で検証します。データを変える場合は `demo/README.md` の件数も更新してください。
 
 配布用DBは、読み取り専用の場所でも参照できるようDELETEジャーナルモードで確定します。新しく生成したDBの全接続を閉じ、Python等で `PRAGMA journal_mode=DELETE` を実行して接続を閉じてから差し替えます。配布処理はデモのWAL／SHMが存在する場合に失敗させます。
 
@@ -75,7 +75,7 @@ reviewerは担当者マスタ参照。レビューありなら確認者必須、
 
 RemoveTaskはarchived=trueにする保管。RestoreTaskはfalseへ戻す。項目と依存レコードを消さず、全体DAGとマスタ参照の検証も継続する。active_dependenciesは保管項目へ接続する関係を除外し、日程・描画・完了ゲートに利用する。マスタ削除は保管項目の参照も検査する。保管項目は文書サイズ/項目数上限に含む。removal_previewは読取専用で版・項目・依存・関連課題を返す。
 
-新規DBは形式4。形式1・2・3への書き込み成功時に、同じトランザクションでuser_versionを4へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。CSV出力の保管項目はフィルターで選ぶ。SQLiteへの書き出しは保管項目も監査も含める。
+新規DBは形式5。形式1・2・3・4への書き込み成功時に、同じトランザクションでuser_versionを5へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。CSV出力の保管項目はフィルターで選ぶ。SQLiteへの書き出しは保管項目も監査も含める。
 
 ## カンバンの入力と描画
 
@@ -111,7 +111,7 @@ native/grid.rsはMASTER_COLUMNSを含む共通セル選択・編集を扱い、m
 
 native/sizing.rsはDPI・現在のスクロール・動的な各列幅とIDごとの行高から境界を判定する。ドラッグ開始寸法を保持し、Esc・キャプチャ喪失・表示切替で復元、ボタン解放で確定する。寸法はDBへ書かない。native/bulk.rsは範囲選択とCtrlによる行ID集合を扱う。batch_task_attributesは選択IDだけへ属性を適用し、Project.changeの複製による事前検証と実保存の同じ業務条件を使う。保存はフォームを開いた時点の版で競合検出する。
 
-Task.completed_onは任意の実績完了日で、旧文書の省略値はNone。予定のdue、状態、進捗とは独立する。形式4で保存し、SQLiteは形式1〜4、PostgreSQLは形式3〜4を読み、正常な更新・移送時だけ形式4へ上げる。旧アプリは形式4への接続を拒否する。
+Task.completed_onは任意の実績完了日で、旧文書の省略値はNone。予定のdue、状態、進捗とは独立する。形式5で保存し、SQLiteは形式1〜5、PostgreSQLは形式3〜5を読み、正常な更新・移送時だけ形式5へ上げる。旧アプリは形式5への接続を拒否する。
 
 native/charts.rsは1日20論理px以上の横スクロール可能な格子を作り、7日ごとに日付を表示する。休日はProject.is_workday、線幅は3論理pxを使用。依存ネットワークの選択系統は先行・後続を方向別に探索した和集合とし、他の分岐を巻き込む無向連結成分にはしない。
 
@@ -130,3 +130,14 @@ tools/test_http.pyは実プロセス・一時設定・専用DBを使い、期限
 BULK_TASK_KEYSをGUI一括フォーム・複数行貼り付け・クリア・fill_tasks_downの共通許可項目とする。個別セルの編集可能性と一括変更可能性を分離し、件名などは複数行の操作で拒否する。Ctrl+Dとメニューのfill-downは可視順の先頭選択行をコピー元とする。参照マスタは表示名ではなくIDでコピーし、同名担当者も取り違えない。1セルの貼り付けは同列の選択行へ展開する。SaveTasks／SaveMastersの最終検証・版競合・監査の原子性は維持する。
 
 チャートの日付軸は上から曜日・日・月・年とし、曜日は日次、日の数字は7日ごと、月・年は境界で区切る。休日背景は曜日・日の段まで描画し、月・年の表示を塗りつぶさない。
+
+
+## バグ・課題の専用管理
+
+Kind::Bugを追加し、Kind::Issueの既存ID・工数設定を保持する。Task.caseはOption<Box<CaseData>>で、省略・nullの旧データは未記録として読む。型は共通のID・版競合・監査・関連タスク・保管機構を利用するが、GUIはタスク一覧、バグ一覧、課題一覧を種類で分離する。通常カンバンとガントはタスクのみ表示する。CASE_COLUMNSの調査列は共通grid/sizing/bulkへ接続し、セル編集・コピー・一括編集・値フィルタ・寸法変更・CSVを同じ処理で実現する。個別値の一括上書き制限も維持する。
+
+cases::prepareはSaveTask/SaveTasksの共通経路で新規検出日時・完了日時を補い、クライアントが渡したtransitionsを既存の正規履歴に置き換える。同じ状態での更新は履歴を増やさない。再オープンは閉鎖日時を解除して状態変更を現在時刻で追記する。日時はDateTime<Utc>、入力はRFC3339。前後関係、型、関連ID、履歴順序、状態との整合性を検証し、拒否時は版・監査・DB形式を変更しない。記録後の種類変更は禁止する。DB形式5はSQLite1〜5、PostgreSQL3〜5を受け付け、成功更新・移送時だけ5へ上げる。
+
+cases::statisticsはUTCの日末における検出累計・未完了・完了・中止を、検出と状態遷移の差分累積で算出する。開始日以前の状態を引き継ぎ、同日複数遷移・再オープンを扱う。種類はbug/issueのみ、最大3660日差。現在のTaskFilterと現在の原因等の属性がコホートを定める。終了日までの全検出が母集団で、開始日以降の検出だけには限定しない。未記録の旧課題はundatedとして分け、保管は現在のarchivedフィルタに従う。平均解決時間は終了日末にDoneの項目の検出から最後のDoneまで。状態履歴のない過去を推測しない。
+
+native/cases.rsの専用フォーム・日次チャートと6分類棒グラフ、および読み取り専用MCP case_statisticsで同じ集計結果を利用する。チャートはnative/charts.rsを工数／件数の単位で共用し、日次格子・4段日付・休日色・線幅を統一する。tools/test_cases.pyは実stdio、test_http.pyはPAT HTTP、test_postgres.pyはPostgreSQLとSQLite移送を検証する。Windows UI smokeは専用DB上の両フォーム・両一覧・幅/行高・同列コピー・一括編集・CSV・統計を検証する。

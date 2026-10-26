@@ -47,7 +47,7 @@ def main():
             tool(7, "audit_list", {"project_id": 1})]
         rows = {row["id"]: row for row in exchange(executable, database, messages)}
         assert rows[1]["result"]["protocolVersion"] == "2025-11-25"
-        assert len(rows[2]["result"]["tools"]) == 8
+        assert len(rows[2]["result"]["tools"]) == 9
         assert rows[4]["result"]["structuredContent"]["revision"] == 2
         assert rows[5]["result"]["isError"]
         assert rows[6]["result"]["structuredContent"]["tasks"][0]["title"] == "実プロセスから保存"
@@ -94,6 +94,8 @@ def main():
         print("Read-only preview and composed filters, invalid arguments: OK")
         print("Bundled demo: MCP project and issues: OK")
         print("MCP stdio initialize, discovery, Unicode task persistence, conflict, audit, read-only: OK")
+        from test_cases import exercise_cases
+        exercise_cases(executable,Path(directory)/'cases.sqlite3')
 
 
 if __name__ == "__main__":

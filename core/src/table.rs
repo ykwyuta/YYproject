@@ -51,6 +51,15 @@ pub fn master_columns(kind: MasterKind) -> &'static [Column] {
     }
 }
 pub const BULK_TASK_KEYS: &[&str] = &[
+    "case.closed_at",
+    "case.temporary_due_at",
+    "case.permanent_due_at",
+    "case.occurrence_phase",
+    "case.cause",
+    "case.detection_phase",
+    "case.temporary_difficulty",
+    "case.permanent_difficulty",
+    "case.detection_difficulty",
     "assignee",
     "category",
     "status",
@@ -181,7 +190,144 @@ columns! {
     "category_3","カテゴリ3",160,false;
     "completed_on","完了日",120,true;
 }
+pub const CASE_COLUMNS: &[Column] = &[
+    COLUMNS[0],
+    COLUMNS[1],
+    COLUMNS[2],
+    COLUMNS[3],
+    COLUMNS[8],
+    COLUMNS[4],
+    COLUMNS[5],
+    Column {
+        key: "case.occurrence_phase",
+        label: "発生工程",
+        width: 160,
+        editable: true,
+    },
+    Column {
+        key: "case.cause",
+        label: "原因分類",
+        width: 180,
+        editable: true,
+    },
+    Column {
+        key: "case.detection_phase",
+        label: "検出工程",
+        width: 160,
+        editable: true,
+    },
+    Column {
+        key: "case.detected_at",
+        label: "検出日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.occurred_at",
+        label: "発生日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.reported_at",
+        label: "報告日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.triaged_at",
+        label: "分析日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.temporary_plan",
+        label: "暫定対策案",
+        width: 360,
+        editable: true,
+    },
+    Column {
+        key: "case.permanent_plan",
+        label: "恒久対策案・案件",
+        width: 360,
+        editable: true,
+    },
+    Column {
+        key: "case.temporary_difficulty",
+        label: "暫定対策難易度",
+        width: 180,
+        editable: true,
+    },
+    Column {
+        key: "case.permanent_difficulty",
+        label: "恒久対策難易度",
+        width: 180,
+        editable: true,
+    },
+    Column {
+        key: "case.detection_difficulty",
+        label: "検知難易度",
+        width: 160,
+        editable: true,
+    },
+    Column {
+        key: "case.temporary_due_at",
+        label: "暫定対策予定日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.temporary_applied_at",
+        label: "暫定対策実施日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.permanent_due_at",
+        label: "恒久対策予定日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.permanent_applied_at",
+        label: "恒久対策実施日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.verified_at",
+        label: "確認日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "case.closed_at",
+        label: "完了・中止日時",
+        width: 240,
+        editable: true,
+    },
+    COLUMNS[10],
+    COLUMNS[14],
+    COLUMNS[17],
+    COLUMNS[6],
+    COLUMNS[7],
+    COLUMNS[18],
+];
 pub fn value(p: &Project, t: &Task, key: &str) -> String {
+    if let Some(key) = key.strip_prefix("case.") {
+        let Some(d) = &t.case else {
+            return String::new();
+        };
+        return match key {
+            "temporary_difficulty" => d.temporary_difficulty.label().into(),
+            "permanent_difficulty" => d.permanent_difficulty.label().into(),
+            "detection_difficulty" => d.detection_difficulty.label().into(),
+            _ => serde_json::to_value(d)
+                .ok()
+                .and_then(|v| v.get(key).and_then(|v| v.as_str()).map(str::to_owned))
+                .unwrap_or_default(),
+        };
+    }
     let master = |id| {
         p.masters
             .iter()
@@ -202,10 +348,10 @@ pub fn value(p: &Project, t: &Task, key: &str) -> String {
         "priority" => t.priority.label().into(),
         "severity" => t.severity.label().into(),
         "review" => t.review.label().into(),
-        "kind" => if t.kind == Kind::Task {
-            "タスク"
-        } else {
-            "課題"
+        "kind" => match t.kind {
+            Kind::Task => "タスク",
+            Kind::Issue => "課題",
+            Kind::Bug => "バグ",
         }
         .into(),
         "include_in_effort" => if t.include_in_effort {
@@ -252,10 +398,42 @@ fn enum_value<T: Copy + Serialize>(
 pub fn set_value(p: &Project, t: &mut Task, key: &str, text: &str) -> Result<()> {
     let column = COLUMNS
         .iter()
+        .chain(CASE_COLUMNS)
         .find(|c| c.key == key)
         .ok_or_else(|| invalid("Unknown column"))?;
     if !column.editable {
         return Err(invalid("Read-only column"));
+    }
+    if let Some(key) = key.strip_prefix("case.") {
+        if t.kind == Kind::Task {
+            return Err(invalid("Investigation fields require bug or issue"));
+        }
+        let data = t.case.get_or_insert_with(Box::default);
+        let value = if key.ends_with("_difficulty") {
+            enum_value(
+                &cases::Difficulty::ALL,
+                cases::Difficulty::label,
+                if text.is_empty() { "unspecified" } else { text },
+            )?
+        } else if key.ends_with("_at") {
+            if text.trim().is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::to_value(
+                    chrono::DateTime::parse_from_rfc3339(text.trim())
+                        .map_err(|_| {
+                            invalid("日時は2026-10-27T09:00:00+09:00の形式で指定してください")
+                        })?
+                        .with_timezone(&Utc),
+                )?
+            }
+        } else {
+            text.into()
+        };
+        let mut object = serde_json::to_value(&*data)?;
+        object[key] = value;
+        *data = serde_json::from_value(object)?;
+        return Ok(());
     }
     let text = if matches!(key, "description" | "review_note" | "title") {
         text
@@ -301,6 +479,7 @@ pub fn set_value(p: &Project, t: &mut Task, key: &str, text: &str) -> Result<()>
         "kind" => match text {
             "タスク" | "task" => "task".into(),
             "課題" | "issue" => "issue".into(),
+            "バグ" | "bug" => "bug".into(),
             _ => return Err(invalid("Unknown task kind")),
         },
         "category" => reference(MasterKind::Category)?,
@@ -469,6 +648,7 @@ pub fn export_csv(p: &Project, filter: &TaskFilter, keys: &[String]) -> Result<S
             }
             COLUMNS
                 .iter()
+                .chain(CASE_COLUMNS)
                 .find(|c| c.key == key)
                 .ok_or_else(|| invalid("Unknown CSV column"))
         })
@@ -575,7 +755,7 @@ pub fn export_jira_csv(
     let mut ordered = p.ordered_tasks();
     // Jira imports higher hierarchy levels before lower levels.
     ordered.sort_by_key(|(t, depth)| {
-        if options.epic_roots && t.kind == Kind::Issue && *depth == 0 {
+        if options.epic_roots && t.kind != Kind::Task && *depth == 0 {
             1
         } else {
             *depth
@@ -599,7 +779,7 @@ pub fn export_jira_csv(
         }
         let issue_type = if depth == if options.epic_roots { 2 } else { 1 } {
             &options.subtask_type
-        } else if t.kind == Kind::Issue {
+        } else if t.kind != Kind::Task {
             &options.issue_type
         } else if options.epic_roots && depth == 0 {
             &options.epic_type

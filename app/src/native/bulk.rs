@@ -10,9 +10,25 @@ const ATTRIBUTES: &[(&str, &str)] = &[
     ("completed_on", "完了日"),
     ("progress", "進捗(%)"),
 ];
+const CASE_ATTRIBUTES: &[(&str, &str)] = &[
+    ("assignee", "担当者"),
+    ("category", "カテゴリ"),
+    ("status", "状態"),
+    ("priority", "優先度"),
+    ("due", "期限"),
+    ("case.occurrence_phase", "発生工程"),
+    ("case.cause", "原因分類"),
+    ("case.detection_phase", "検出工程"),
+    ("case.temporary_difficulty", "暫定対策難易度"),
+    ("case.permanent_difficulty", "恒久対策難易度"),
+    ("case.detection_difficulty", "検知難易度"),
+    ("case.closed_at", "完了・中止日時"),
+    ("case.temporary_due_at", "暫定対策予定日時"),
+    ("case.permanent_due_at", "恒久対策予定日時"),
+];
 impl State {
     pub(super) fn selected_task_ids(&self) -> Vec<i64> {
-        if !matches!(self.view, 2 | 3) {
+        if !matches!(self.view, 2 | 3 | 8) {
             return vec![];
         }
         self.grid_rows()
@@ -60,8 +76,10 @@ impl State {
             .as_ref()
             .ok_or("プロジェクトを開いてください")?
             .clone();
+        let is_case = matches!(self.view, 3 | 8);
+        let attributes = if is_case { CASE_ATTRIBUTES } else { ATTRIBUTES };
         let mut fields = Vec::new();
-        for (i, (key, label)) in ATTRIBUTES.iter().enumerate() {
+        for (i, (key, label)) in attributes.iter().enumerate() {
             fields.push(choice(
                 &format!("{label}の変更"),
                 "keep",
@@ -113,6 +131,15 @@ impl State {
                         )
                     })
                     .collect(),
+                k if k.ends_with("_difficulty") => yy_project::cases::Difficulty::ALL
+                    .iter()
+                    .map(|d| {
+                        (
+                            serde_json::to_value(d).unwrap().as_str().unwrap().into(),
+                            d.label().into(),
+                        )
+                    })
+                    .collect(),
                 _ => vec![],
             };
             fields.push(if options.is_empty() {
@@ -125,7 +152,7 @@ impl State {
         let count = ids.len();
         let snapshot = p.clone();
         let make = move |v: &[String]| {
-            let values = ATTRIBUTES
+            let values = attributes
                 .iter()
                 .enumerate()
                 .filter_map(|(i, (key, _))| match v[i * 2].as_str() {
@@ -142,7 +169,10 @@ impl State {
         let validate = make.clone();
         if let Some(v) = form(
             self.hwnd,
-            &format!("選択行の属性を一括変更（{count}件）"),
+            &format!(
+                "選択行の属性を一括変更{}（{count}件）",
+                if is_case { " — バグ・課題" } else { "" }
+            ),
             fields,
             move |v| validate(v).map(|_| ()).map_err(|e| e.to_string()),
         ) {

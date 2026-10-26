@@ -67,7 +67,7 @@ impl State {
         } else {
             self.selected_task_ids().len()
         };
-        matches!(self.view, 2 | 3 | 7)
+        matches!(self.view, 2 | 3 | 7 | 8)
             && count >= 2
             && (self.grid.anchor.1.min(self.grid.current.1)
                 ..=self.grid.anchor.1.max(self.grid.current.1))
@@ -117,6 +117,8 @@ impl State {
     pub(super) fn grid_columns(&self) -> &'static [table::Column] {
         if self.view == 7 {
             table::master_columns(self.master_kind)
+        } else if matches!(self.view, 3 | 8) {
+            table::CASE_COLUMNS
         } else {
             table::COLUMNS
         }
@@ -177,15 +179,7 @@ impl State {
                 p.ordered_tasks()
                     .into_iter()
                     .filter(|(t, _)| p.matches_filter(&self.filter, t))
-                    .filter(|(t, _)| {
-                        self.grid.all_kinds
-                            || t.kind
-                                == if self.view == 3 {
-                                    Kind::Issue
-                                } else {
-                                    Kind::Task
-                                }
-                    })
+                    .filter(|(t, _)| self.grid.all_kinds || t.kind == self.list_kind())
                     .map(|(t, d)| (t.id, d))
                     .collect()
             })
@@ -371,7 +365,7 @@ impl State {
                 table::set_value(
                     p,
                     &mut task,
-                    table::COLUMNS[edit.column].key,
+                    self.grid_columns()[edit.column].key,
                     &text(edit.hwnd),
                 )?;
                 (serde_json::to_value(&task)? != serde_json::to_value(old)?)
@@ -453,7 +447,7 @@ impl State {
             && selected.len() > 1
             && self.grid.anchor.1 == self.grid.current.1
         {
-            let key = table::COLUMNS[self.grid.current.1].key;
+            let key = self.grid_columns()[self.grid.current.1].key;
             let change =
                 table::batch_task_attributes(p, &selected, &[(key.into(), data[0][0].clone())])?;
             return self.apply(change);
@@ -463,14 +457,16 @@ impl State {
             self.grid.anchor.1.min(self.grid.current.1),
         );
         if row + data.len() > rows.len()
-            || data.iter().any(|r| col + r.len() > table::COLUMNS.len())
+            || data
+                .iter()
+                .any(|r| col + r.len() > self.grid_columns().len())
         {
             return Err("貼り付け範囲が一覧の行・列を超えています".into());
         }
         if data.len() > 1 {
             for values in &data {
                 table::validate_bulk_keys(
-                    table::COLUMNS[col..col + values.len()]
+                    self.grid_columns()[col..col + values.len()]
                         .iter()
                         .filter(|c| c.editable)
                         .map(|c| c.key),
@@ -486,7 +482,7 @@ impl State {
                 .unwrap()
                 .clone();
             for (i, v) in values.iter().enumerate() {
-                let c = &table::COLUMNS[col + i];
+                let c = &self.grid_columns()[col + i];
                 if !c.editable {
                     if table::value(p, &t, c.key) != *v {
                         return Err("ID・カテゴリ階層列は読み取り専用です".into());
@@ -511,7 +507,7 @@ impl State {
         let (a, b) = (self.grid.anchor, self.grid.current);
         if self.selected_task_ids().len() > 1 {
             table::validate_bulk_keys(
-                table::COLUMNS[a.1.min(b.1)..=a.1.max(b.1)]
+                self.grid_columns()[a.1.min(b.1)..=a.1.max(b.1)]
                     .iter()
                     .filter(|c| c.editable)
                     .map(|c| c.key),
@@ -526,7 +522,8 @@ impl State {
             }
         }) {
             let mut t = p.tasks.iter().find(|t| t.id == *id).unwrap().clone();
-            for (_, c) in table::COLUMNS
+            for (_, c) in self
+                .grid_columns()
                 .iter()
                 .enumerate()
                 .filter(|(i, c)| c.editable && *i >= a.1.min(b.1) && *i <= a.1.max(b.1))
@@ -546,7 +543,7 @@ impl State {
         if ctrl && key == b'F' as u16 {
             return Some(self.search_form());
         }
-        if !matches!(self.view, 2 | 3 | 7) {
+        if !matches!(self.view, 2 | 3 | 7 | 8) {
             return None;
         }
         let result = if ctrl && key == b'D' as u16 {
@@ -613,7 +610,7 @@ impl State {
         let Some(col) = self.grid_column(point.x) else {
             return Ok(());
         };
-        let c = &table::COLUMNS[col];
+        let c = &self.grid_columns()[col];
         let p = self
             .project
             .as_ref()
@@ -621,7 +618,10 @@ impl State {
         let values: Vec<_> = p
             .tasks
             .iter()
-            .filter(|t| !t.archived)
+            .filter(|t| {
+                t.archived == self.filter.archived
+                    && (self.grid.all_kinds || t.kind == self.list_kind())
+            })
             .map(|t| table::value(p, t, c.key))
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
@@ -713,12 +713,14 @@ impl State {
             },
         ) {
             self.filter.query = v[0].clone();
-            self.view = 2;
-            self.grid.all_kinds = true;
+            if !matches!(self.view, 3 | 8) {
+                self.view = 2;
+                self.grid.all_kinds = true;
+            }
             self.grid.selection = false;
             self.x = 0;
             self.y = 0;
-            send(self.tabs, TCM_SETCURSEL, 2, 0);
+            send(self.tabs, TCM_SETCURSEL, self.view, 0);
             self.layout();
             invalidate(self.hwnd);
         }
@@ -729,6 +731,19 @@ impl State {
             .project
             .as_ref()
             .ok_or("プロジェクトを選択してください")?;
+        let columns = if matches!(self.view, 3 | 8 | 9 | 10) {
+            table::CASE_COLUMNS
+        } else {
+            table::COLUMNS
+        };
+        let kind = if matches!(self.view, 3 | 8 | 9 | 10) {
+            serde_json::to_value(self.list_kind())?
+                .as_str()
+                .unwrap()
+                .to_owned()
+        } else {
+            "all".into()
+        };
         let choices = |kind| {
             std::iter::once((String::new(), "すべて".into()))
                 .chain(p.masters.iter().filter(|m| m.kind == kind).map(|m| {
@@ -787,16 +802,17 @@ impl State {
             ),
             choice(
                 "種類",
-                "all",
+                &kind,
                 vec![
-                    ("all".into(), "タスクと課題".into()),
+                    ("all".into(), "すべて".into()),
                     ("task".into(), "タスク".into()),
                     ("issue".into(), "課題".into()),
+                    ("bug".into(), "バグ".into()),
                 ],
                 0,
             ),
         ];
-        for (i, c) in table::COLUMNS.iter().enumerate() {
+        for (i, c) in columns.iter().enumerate() {
             fields.push(choice(
                 c.label,
                 "yes",
@@ -828,9 +844,10 @@ impl State {
             filter.kind = match v[4].as_str() {
                 "task" => Some(Kind::Task),
                 "issue" => Some(Kind::Issue),
+                "bug" => Some(Kind::Bug),
                 _ => None,
             };
-            let keys = table::COLUMNS
+            let keys = columns
                 .iter()
                 .zip(&v[5..])
                 .filter(|(_, v)| *v == "yes")

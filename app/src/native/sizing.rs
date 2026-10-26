@@ -19,7 +19,7 @@ impl State {
             return None;
         }
         let tolerance = self.px(4);
-        if matches!(self.view, 2 | 3 | 7) {
+        if matches!(self.view, 2 | 3 | 7 | 8) {
             if point.y < self.body.top + self.px(30) {
                 let mut x = self.body.left - self.x;
                 for col in 0..self.grid_columns().len() {
@@ -58,7 +58,7 @@ impl State {
                     for (t, _) in p
                         .ordered_tasks()
                         .into_iter()
-                        .filter(|(t, _)| p.matches_filter(&self.filter, t))
+                        .filter(|(t, _)| t.kind == Kind::Task && p.matches_filter(&self.filter, t))
                     {
                         y += self.px(self.timeline.height(t.id));
                         if y > self.body.top + self.px(96) && (point.y - y).abs() <= tolerance {

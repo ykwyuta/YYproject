@@ -116,7 +116,7 @@ fn selected_rows_update_attributes_and_actual_completion_date_atomically() {
     assert_eq!(
         sql.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
 }
 #[test]
