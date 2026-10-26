@@ -186,6 +186,7 @@ pub fn create(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 &mut project,
                 Change::SaveMaster {
                     master: Master {
+                        parent: None,
                         id: 0,
                         kind: m.kind,
                         name: m.name,

@@ -14,11 +14,40 @@ use windows::{
 };
 use yy_project::*;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+mod advanced;
 mod smoke;
 thread_local! {static SMOKE:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 thread_local! {static SMOKE_ERRORS:RefCell<Vec<String>>=const{RefCell::new(Vec::new())};}
 thread_local! {static SMOKE_CANCEL_FORM:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
+thread_local! {static SMOKE_FORM_VALUES:RefCell<BTreeMap<String,String>>=const{RefCell::new(BTreeMap::new())};}
+thread_local! {static SMOKE_FILE_PATH:RefCell<Option<PathBuf>>=const{RefCell::new(None)};}
+thread_local! {static SMOKE_MENU_SIZE:std::cell::Cell<i32>=const{std::cell::Cell::new(8)};}
+thread_local! {static SMOKE_CONTEXT_MENU:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 const AUTO_FORM: u32 = WM_APP + 17;
+const DRAG_TIMER: usize = 2;
+const GRID_FINISH: u32 = WM_APP + 50;
+mod grid;
+mod timeline;
+use grid::GridState;
+use timeline::Timeline;
+#[derive(Clone, Copy)]
+struct CardDrag {
+    id: i64,
+    start: POINT,
+    pointer: POINT,
+    offset: POINT,
+    active: bool,
+}
+impl CardDrag {
+    fn card(self, dpi: i32) -> RECT {
+        rect(
+            self.pointer.x - self.offset.x,
+            self.pointer.y - self.offset.y,
+            224 * dpi / 96,
+            112 * dpi / 96,
+        )
+    }
+}
 const VIEWS: [&str; 8] = [
     "カンバン",
     "ガント",
@@ -49,7 +78,9 @@ struct State {
     y: i32,
     content: (i32, i32),
     hits: Vec<(RECT, i64)>,
-    drag: Option<i64>,
+    drag: Option<CardDrag>,
+    grid: GridState,
+    timeline: Timeline,
     version: i64,
     status: String,
     body: RECT,
@@ -132,6 +163,25 @@ fn line(dc: HDC, a: (i32, i32), b: (i32, i32), c: COLORREF) {
         let _ = LineTo(dc, b.0, b.1);
     }
 }
+fn outline(dc: HDC, r: RECT, c: COLORREF) {
+    line(dc, (r.left, r.top), (r.right - 1, r.top), c);
+    line(dc, (r.right - 1, r.top), (r.right - 1, r.bottom - 1), c);
+    line(dc, (r.right - 1, r.bottom - 1), (r.left, r.bottom - 1), c);
+    line(dc, (r.left, r.bottom - 1), (r.left, r.top), c);
+}
+fn wrapped_label(dc: HDC, mut r: RECT, value: &str) {
+    let mut title: Vec<_> = value.encode_utf16().collect();
+    unsafe {
+        SetTextColor(dc, COLORREF(0x282828));
+        SetBkMode(dc, TRANSPARENT);
+        DrawTextW(
+            dc,
+            &mut title,
+            &mut r,
+            DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL | DT_END_ELLIPSIS | DT_NOPREFIX,
+        );
+    }
+}
 fn window_font(h: HWND) -> HFONT {
     unsafe {
         CreateFontW(
@@ -158,9 +208,12 @@ fn invalidate(h: HWND) {
     }
 }
 fn file_dialog(h: HWND, save: bool, json: bool) -> Option<PathBuf> {
+    if SMOKE.with(|s| s.get()) {
+        return SMOKE_FILE_PATH.with(|p| p.borrow_mut().take());
+    }
     unsafe {
         let filter: Vec<u16> = if json {
-            "JSON\0*.json\0\0"
+            "CSV\0*.csv\0\0"
         } else {
             "YYProject SQLite\0*.sqlite3;*.db\0すべてのファイル\0*.*\0\0"
         }
@@ -222,6 +275,7 @@ fn choice(name: &str, value: impl ToString, choices: Vec<(String, String)>, page
         ..field(name, value, page)
     }
 }
+type FormValidator = dyn Fn(&[String]) -> std::result::Result<(), String>;
 struct Form {
     fields: Vec<Field>,
     controls: Vec<(HWND, HWND)>,
@@ -229,7 +283,7 @@ struct Form {
     page: usize,
     done: bool,
     result: Option<Vec<String>>,
-    validate: fn(&[String]) -> std::result::Result<(), String>,
+    validate: Box<FormValidator>,
 }
 impl Form {
     fn layout(&self, h: HWND) {
@@ -237,20 +291,13 @@ impl Form {
             let mut r = RECT::default();
             let _ = GetClientRect(h, &mut r);
             let margin = px(h, 14);
-            let top = if self.tabs.is_some() {
-                px(h, 42)
-            } else {
-                margin
-            };
+            let mut top = margin;
             if let Some(t) = self.tabs {
-                let _ = MoveWindow(
-                    t,
-                    margin,
-                    px(h, 6),
-                    (r.right - 2 * margin).max(1),
-                    px(h, 30),
-                    true,
-                );
+                let width = (r.right - 2 * margin).max(1);
+                let _ = MoveWindow(t, margin, px(h, 6), width, px(h, 200), false);
+                let tab_h = send(t, TCM_GETROWCOUNT, 0, 0).0.max(1) as i32 * px(h, 28) + px(h, 5);
+                let _ = MoveWindow(t, margin, px(h, 6), width, tab_h, true);
+                top = px(h, 6) + tab_h + px(h, 8);
             }
             let visible = self
                 .fields
@@ -269,9 +316,9 @@ impl Form {
                 }
                 let n = visible.iter().position(|(index, _)| *index == i).unwrap() as i32;
                 let y = top + n * row;
-                let lw = px(h, 125).min(r.right / 3);
+                let lw = px(h, 210).min(r.right / 3);
                 let ew = (r.right - lw - 3 * margin).max(1);
-                let _ = MoveWindow(*l, margin, y, lw, px(h, 24), true);
+                let _ = MoveWindow(*l, margin, y, lw, (row - px(h, 6)).max(px(h, 24)), true);
                 let eh = if f.multi {
                     (r.bottom - y - px(h, 68)).max(px(h, 36))
                 } else {
@@ -399,8 +446,16 @@ unsafe extern "system" fn form_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LR
                                 errors.borrow_mut().push("Preview was editable".into())
                             });
                         }
-                        if let Some(value) = value {
-                            let _ = SetWindowTextW(*edit, &HSTRING::from(value));
+                        let override_value =
+                            SMOKE_FORM_VALUES.with(|m| m.borrow().get(&field.name).cloned());
+                        if let Some(value) = override_value.as_deref().or(value) {
+                            if field.choices.is_empty() {
+                                let _ = SetWindowTextW(*edit, &HSTRING::from(value));
+                            } else if let Some(index) =
+                                field.choices.iter().position(|(key, _)| key == value)
+                            {
+                                send(*edit, CB_SETCURSEL, index, 0);
+                            }
                         }
                     }
                     let _ = PostMessageW(Some(h), WM_COMMAND, WPARAM(1), LPARAM(0));
@@ -456,7 +511,7 @@ fn form(
     parent: HWND,
     title: &str,
     fields: Vec<Field>,
-    validate: fn(&[String]) -> std::result::Result<(), String>,
+    validate: impl Fn(&[String]) -> std::result::Result<(), String> + 'static,
 ) -> Option<Vec<String>> {
     unsafe {
         let instance = GetModuleHandleW(None).ok()?;
@@ -500,7 +555,7 @@ fn form(
             page: 0,
             done: false,
             result: None,
-            validate,
+            validate: Box::new(validate),
         };
         let pages = f.fields.iter().map(|f| f.page).max().unwrap_or(0);
         if pages > 0 {
@@ -520,17 +575,22 @@ fn form(
             )
             .ok()?;
             send(t, WM_SETFONT, font.0 as usize, 0);
-            for (i, name) in [
-                "基本情報",
-                "日程・進捗",
-                "説明",
-                "分類・確認",
-                "確認メモ",
-                "集計・関連",
-            ]
-            .iter()
-            .enumerate()
-            {
+            let labels = if title.starts_with("Jira") {
+                vec!["出力条件", "課題タイプ", "出力列"]
+            } else if title.starts_with("CSV") {
+                vec!["出力条件", "出力列1", "出力列2", "出力列3", "出力列4"]
+            } else {
+                vec![
+                    "基本情報",
+                    "日程・進捗",
+                    "説明",
+                    "分類・確認",
+                    "確認メモ",
+                    "集計・関連",
+                    "階層・節目",
+                ]
+            };
+            for (i, name) in labels.iter().take(pages + 1).enumerate() {
                 let mut value: Vec<_> = name.encode_utf16().chain(Some(0)).collect();
                 let item = TCITEMW {
                     mask: TCIF_TEXT,
@@ -750,6 +810,180 @@ fn task_values(v: &[String]) -> std::result::Result<(), String> {
     Ok(())
 }
 impl State {
+    fn hit_task(&self, x: i32, y: i32) -> Option<i64> {
+        if !inside(self.body, x, y)
+            || (self.view != 4
+                && y < self.body.top
+                    + self.px(if self.view == 0 {
+                        20
+                    } else if self.view == 1 {
+                        96
+                    } else {
+                        30
+                    }))
+        {
+            return None;
+        }
+        self.hits
+            .iter()
+            .rev()
+            .find(|(r, _)| inside(*r, x, y))
+            .map(|(_, id)| *id)
+    }
+    fn task_context_menu(&mut self, mut point: POINT) -> Result<()> {
+        self.cancel_drag();
+        if !matches!(self.view, 0..=4) {
+            return Ok(());
+        }
+        unsafe {
+            if point.x == -1 && point.y == -1 {
+                let Some((r, _)) = self.hits.iter().find(|(r, id)| {
+                    Some(*id) == self.selected
+                        && r.bottom > self.body.top
+                        && r.top < self.body.bottom
+                        && r.right > self.body.left
+                        && r.left < self.body.right
+                }) else {
+                    return Ok(());
+                };
+                point = POINT {
+                    x: r.left.max(self.body.left),
+                    y: r.top.max(self.body.top),
+                };
+                let _ = ClientToScreen(self.hwnd, &mut point);
+            } else {
+                let mut client = point;
+                let _ = ScreenToClient(self.hwnd, &mut client);
+                if matches!(self.view, 2 | 3)
+                    && client.y >= self.body.top
+                    && client.y < self.body.top + self.px(30)
+                {
+                    return self.column_filter_menu(client);
+                }
+                self.selected = self.hit_task(client.x, client.y);
+            }
+            let Some(task) = self.task() else {
+                return Ok(());
+            };
+            let current = task.status;
+            let can_add_child = task.kind == Kind::Task && !task.archived;
+            invalidate(self.hwnd);
+            let popup = CreatePopupMenu()?;
+            // Destroy the owned menu even when population or command handling fails.
+            let result = (|| -> Result<usize> {
+                AppendMenuW(popup, MF_STRING, 112, w!("項目を編集…\tEnter"))?;
+                AppendMenuW(
+                    popup,
+                    MF_STRING | if can_add_child { MF_ENABLED } else { MF_GRAYED },
+                    121,
+                    w!("子タスクを追加…"),
+                )?;
+                AppendMenuW(popup, MF_SEPARATOR, 0, PCWSTR::null())?;
+                for (index, status) in Status::ALL.iter().enumerate() {
+                    AppendMenuW(
+                        popup,
+                        MF_STRING
+                            | if *status == current {
+                                MF_CHECKED
+                            } else {
+                                MF_UNCHECKED
+                            },
+                        300 + index,
+                        &HSTRING::from(format!("{} に変更", status.label())),
+                    )?;
+                }
+                Ok(TrackPopupMenu(
+                    popup,
+                    TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                    point.x,
+                    point.y,
+                    None,
+                    self.hwnd,
+                    None,
+                )
+                .0 as usize)
+            })();
+            let _ = DestroyMenu(popup);
+            invalidate(self.hwnd);
+            let id = result?;
+            if id != 0 {
+                self.command(id)?;
+            }
+        }
+        Ok(())
+    }
+    fn cancel_drag(&mut self) {
+        let repaint = self.drag.take().is_some() || self.grid.selecting || self.timeline.resizing;
+        self.timeline.resizing = false;
+        self.grid.selecting = false;
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), DRAG_TIMER);
+            if GetCapture() == self.hwnd {
+                let _ = ReleaseCapture();
+            }
+        }
+        if repaint {
+            invalidate(self.hwnd);
+        }
+    }
+    fn drop_status(&self, point: POINT) -> Option<Status> {
+        if self.view != 0 || !inside(self.body, point.x, point.y) {
+            return None;
+        }
+        Status::ALL
+            .get(((point.x - self.body.left + self.x) / self.px(240)) as usize)
+            .copied()
+    }
+    fn move_drag(&mut self, point: POINT) {
+        if let Some(drag) = self.drag.as_mut() {
+            drag.pointer = point;
+            unsafe {
+                drag.active |= (point.x - drag.start.x).abs()
+                    >= GetSystemMetricsForDpi(SM_CXDRAG, self.dpi as u32)
+                    || (point.y - drag.start.y).abs()
+                        >= GetSystemMetricsForDpi(SM_CYDRAG, self.dpi as u32);
+            }
+            invalidate(self.hwnd);
+        }
+    }
+    fn scroll_drag(&mut self) {
+        let Some(drag) = self.drag.filter(|d| d.active) else {
+            return;
+        };
+        if !inside(self.body, drag.pointer.x, drag.pointer.y) {
+            return;
+        }
+        let edge = self.px(36);
+        let step = self.px(24);
+        let shift = |v: i32, low: i32, high: i32| {
+            // Keep the two edge zones disjoint even in a short viewport.
+            let margin = edge.min(((high - low) / 3).max(1));
+            if v < low + margin {
+                -step
+            } else if v >= high - margin {
+                step
+            } else {
+                0
+            }
+        };
+        let dx = if self.view == 0 {
+            shift(drag.pointer.x, self.body.left, self.body.right)
+        } else {
+            0
+        };
+        let dy = shift(
+            drag.pointer.y,
+            self.body.top + self.px(if self.view == 0 { 20 } else { 30 }),
+            self.body.bottom,
+        );
+        if dx == 0 && dy == 0 {
+            return;
+        }
+        self.x += dx;
+        self.y += dy;
+        self.layout();
+        invalidate(self.hwnd);
+    }
     fn px(&self, value: i32) -> i32 {
         value * self.dpi / 96
     }
@@ -769,6 +1003,8 @@ impl State {
         ))
     }
     fn reload(&mut self) -> Result<()> {
+        self.cancel_drag();
+        self.grid.selecting = false;
         self.projects = self.store.list()?;
         send(self.selector, CB_RESETCONTENT, 0, 0);
         for (i, (id, name, _)) in self.projects.iter().enumerate() {
@@ -826,7 +1062,7 @@ impl State {
                     Status::ALL.iter().position(|status| {
                         p.tasks
                             .iter()
-                            .any(|t| t.status == *status && self.filter.matches(t))
+                            .any(|t| t.status == *status && p.matches_filter(&self.filter, t))
                     })
                 })
                 .unwrap_or(0) as i32
@@ -836,6 +1072,9 @@ impl State {
         }
     }
     fn set_status(&mut self, mut task: Task, status: Status) -> Result<()> {
+        if task.status == status {
+            return Ok(());
+        }
         if task.status == Status::Done && !matches!(status, Status::Done | Status::Cancelled) {
             let Some(values) = form(
                 self.hwnd,
@@ -863,12 +1102,16 @@ impl State {
             .ok_or("プロジェクトを選択してください")?;
         let master_options = |kind| {
             std::iter::once((String::new(), "すべて".into()))
-                .chain(
-                    p.masters
-                        .iter()
-                        .filter(move |m| m.kind == kind)
-                        .map(|m| (m.id.to_string(), m.name.clone())),
-                )
+                .chain(p.masters.iter().filter(move |m| m.kind == kind).map(|m| {
+                    (
+                        m.id.to_string(),
+                        if m.kind == MasterKind::Category {
+                            p.category_path(Some(m.id)).join(" / ")
+                        } else {
+                            m.name.clone()
+                        },
+                    )
+                }))
                 .collect()
         };
         let mut states = vec![(String::new(), "すべて".into())];
@@ -1230,6 +1473,7 @@ impl State {
             Task {
                 kind: if issue { Kind::Issue } else { Kind::Task },
                 duration_days: 1,
+                parent: self.grid.new_parent,
                 include_in_effort: !issue,
                 ..Default::default()
             }
@@ -1238,12 +1482,16 @@ impl State {
         };
         let masters = |kind| {
             std::iter::once((String::new(), "（未指定）".into()))
-                .chain(
-                    p.masters
-                        .iter()
-                        .filter(move |m| m.kind == kind)
-                        .map(|m| (m.id.to_string(), m.name.clone())),
-                )
+                .chain(p.masters.iter().filter(move |m| m.kind == kind).map(|m| {
+                    (
+                        m.id.to_string(),
+                        if m.kind == MasterKind::Category {
+                            p.category_path(Some(m.id)).join(" / ")
+                        } else {
+                            m.name.clone()
+                        },
+                    )
+                }))
                 .collect()
         };
         let mut fields = vec![
@@ -1367,6 +1615,30 @@ impl State {
                 5,
             ),
         ]);
+        fields.extend([
+            choice(
+                "親タスク",
+                t.parent.map(|id| id.to_string()).unwrap_or_default(),
+                std::iter::once((String::new(), "（親なし）".into()))
+                    .chain(
+                        p.tasks
+                            .iter()
+                            .filter(|v| v.id != t.id && v.kind == Kind::Task)
+                            .map(|v| (v.id.to_string(), format!("#{} {}", v.id, v.title))),
+                    )
+                    .collect(),
+                6,
+            ),
+            choice(
+                "マイルストーン",
+                if t.milestone { "yes" } else { "no" },
+                vec![
+                    ("no".into(), "通常の項目".into()),
+                    ("yes".into(), "マイルストーン（同日・工数0）".into()),
+                ],
+                6,
+            ),
+        ]);
         fields[10].multi = true;
         fields[15].multi = true;
         if let Some(v) = form(
@@ -1409,6 +1681,18 @@ impl State {
             t.review_note = v[15].clone();
             t.include_in_effort = v[16] == "yes";
             t.related_tasks = related_ids(&v[17])?;
+            t.parent = v[18].parse().ok();
+            t.milestone = v[19] == "yes";
+            if t.milestone {
+                let day = t
+                    .start
+                    .or(t.due)
+                    .ok_or("マイルストーンの日付を指定してください")?;
+                t.start = Some(day);
+                t.due = Some(day);
+                t.duration_days = 0;
+                t.estimate = 0.0;
+            }
             self.apply(Change::SaveTask { task: t })?;
         }
         Ok(())
@@ -1499,11 +1783,30 @@ impl State {
                 0,
             ));
         }
-        if let Some(v) = form(self.hwnd, "マスタ項目", fields, |v| {
+        if kind == MasterKind::Category {
+            fields.push(choice(
+                "親カテゴリ（最大3階層）",
+                old.and_then(|m| m.parent)
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
+                std::iter::once((String::new(), "（最上位）".into()))
+                    .chain(
+                        p.masters
+                            .iter()
+                            .filter(|m| {
+                                m.kind == MasterKind::Category && old.is_none_or(|o| o.id != m.id)
+                            })
+                            .map(|m| (m.id.to_string(), p.category_path(Some(m.id)).join(" / "))),
+                    )
+                    .collect(),
+                0,
+            ));
+        }
+        if let Some(v) = form(self.hwnd, "マスタ項目", fields, move |v| {
             if v[0].trim().is_empty() {
                 return Err("名前を入力してください".into());
             }
-            if v.len() > 1 {
+            if kind == MasterKind::Holiday {
                 date(&v[1])?;
             }
             Ok(())
@@ -1515,6 +1818,11 @@ impl State {
             };
             self.apply(Change::SaveMaster {
                 master: Master {
+                    parent: if kind == MasterKind::Category {
+                        v[1].parse().ok()
+                    } else {
+                        None
+                    },
                     id: old.map_or(0, |m| m.id),
                     kind,
                     name: v[0].clone(),
@@ -1592,6 +1900,8 @@ impl State {
         Ok(())
     }
     fn command(&mut self, id: usize) -> Result<()> {
+        self.finish_cell_edit(true)?;
+        self.cancel_drag();
         match id {
             100 | 101 => {
                 if let Some(path) = file_dialog(self.hwnd, id == 100, false) {
@@ -1609,24 +1919,48 @@ impl State {
             }
             102 => self.project_form(true)?,
             103 => self.project_form(false)?,
-            104 => {
-                if let Some(path) = file_dialog(self.hwnd, true, true) {
-                    let p = self
-                        .project
-                        .as_ref()
-                        .ok_or("プロジェクトを選択してください")?;
-                    if path
-                        .canonicalize()
-                        .ok()
-                        .is_some_and(|d| self.path.canonicalize().ok().as_ref() == Some(&d))
-                    {
-                        return Err("使用中のデータベースには出力できません".into());
-                    }
-                    std::fs::write(path, serde_json::to_vec_pretty(p)?)?;
+            104 => self.export_csv_form()?,
+            109 => self.export_jira_form()?,
+            105 => {
+                let url = std::env::var("YYPROJECT_DATABASE_URL")
+                    .map_err(|_| "YYPROJECT_DATABASE_URLを設定してください")?;
+                self.store = Store::connect_postgres(&url, false)?;
+                self.project = None;
+                self.selected = None;
+                self.reload()?;
+            }
+            106 => {
+                if let Some(path) = file_dialog(self.hwnd, true, false) {
+                    self.store.export_sqlite(&path)?;
+                    self.status = "SQLiteへ書き出しました".into();
                 }
             }
+            107 => {
+                let url = std::env::var("YYPROJECT_DATABASE_URL")
+                    .map_err(|_| "YYPROJECT_DATABASE_URLを設定してください")?;
+                let dump = self.store.snapshot()?;
+                let mut target = Store::connect_postgres(&url, false)?;
+                target.import(&dump)?;
+                self.store = target;
+                self.project = None;
+                self.selected = None;
+                self.reload()?;
+            }
+            420 => self.search_form()?,
+            430 => self.timeline_form()?,
             110 => self.edit_task(true, false)?,
             111 => self.edit_task(true, true)?,
+            121 => {
+                let parent = self
+                    .task()
+                    .filter(|t| t.kind == Kind::Task && !t.archived)
+                    .ok_or("保管されていない親タスクを選択してください")?
+                    .id;
+                self.grid.new_parent = Some(parent);
+                let result = self.edit_task(true, false);
+                self.grid.new_parent = None;
+                result?;
+            }
             112 => {
                 if self.view == 7 {
                     self.master(false)?;
@@ -1683,6 +2017,8 @@ impl State {
             }
             200..=207 => {
                 self.view = id - 200;
+                self.grid.all_kinds = false;
+                self.grid.selection = false;
                 self.x = 0;
                 self.y = 0;
                 self.selected = None;
@@ -1776,37 +2112,40 @@ impl State {
                                 .map(|status| {
                                     p.tasks
                                         .iter()
-                                        .filter(|t| t.status == *status && self.filter.matches(t))
+                                        .filter(|t| {
+                                            t.status == *status && p.matches_filter(&self.filter, t)
+                                        })
                                         .count()
                                 })
                                 .max()
                                 .unwrap_or(0)
                         }) as i32
-                            * self.px(88),
+                            * self.px(120),
                 ),
                 1 => (
                     self.project.as_ref().map_or(1000, |_| {
-                        self.px(230)
-                            + self
-                                .gantt_range()
-                                .map_or(30, |(first, last)| ((last - first).num_days() + 2).max(30))
-                                as i32
-                                * self.px(20)
+                        self.timeline.width(self.dpi, self.body)
+                            + self.gantt_range().map_or(30, |(first, last)| {
+                                ((last - self.timeline_first().unwrap_or(first)).num_days() + 2)
+                                    .max(30)
+                            }) as i32
+                                * self.px(self.timeline.day_width)
                     }),
-                    (n + 2) * self.px(30),
+                    (n + 1) * self.px(30) + self.px(96),
                 ),
                 2 | 3 => (
-                    self.px(1800),
+                    self.px(table::COLUMNS.iter().map(|c| c.width).sum()),
                     (self.project.as_ref().map_or(0, |p| {
                         p.tasks
                             .iter()
-                            .filter(|t| self.filter.matches(t))
+                            .filter(|t| p.matches_filter(&self.filter, t))
                             .filter(|t| {
-                                if self.view == 3 {
-                                    t.kind == Kind::Issue
-                                } else {
-                                    t.kind == Kind::Task
-                                }
+                                self.grid.all_kinds
+                                    || if self.view == 3 {
+                                        t.kind == Kind::Issue
+                                    } else {
+                                        t.kind == Kind::Task
+                                    }
                             })
                             .count()
                     }) as i32
@@ -1870,17 +2209,36 @@ impl State {
             || "ファイル → プロジェクトを追加 から始めてください".into(),
             |p| {
                 format!(
-                    "{} 絞込 {} / {}件（カンバン・一覧） | {} | 版 {} | {} | {}",
+                    "{} | {} 表示 {} / {}件 | 版 {} | {} | {}",
+                    if self.status.is_empty() {
+                        VIEWS[self.view]
+                    } else {
+                        &self.status
+                    },
                     if self.filter.archived {
                         "保管済み"
                     } else {
                         "通常"
                     },
-                    p.tasks.iter().filter(|t| self.filter.matches(t)).count(),
+                    p.tasks
+                        .iter()
+                        .filter(|t| p.matches_filter(&self.filter, t)
+                            && (!matches!(self.view, 2 | 3)
+                                || self.grid.all_kinds
+                                || t.kind
+                                    == if self.view == 3 {
+                                        Kind::Issue
+                                    } else {
+                                        Kind::Task
+                                    }))
+                        .count(),
                     p.tasks.len(),
-                    self.path.display(),
                     p.revision,
-                    self.status,
+                    if self.store.is_postgres() {
+                        "PostgreSQL".into()
+                    } else {
+                        self.path.display().to_string()
+                    },
                     self.master_label()
                 )
             },
@@ -1939,7 +2297,7 @@ impl State {
                             status.label(),
                             p.tasks
                                 .iter()
-                                .filter(|t| t.status == *status && self.filter.matches(t))
+                                .filter(|t| t.status == *status && p.matches_filter(&self.filter, t))
                                 .count()
                         ),
                         black,
@@ -1947,32 +2305,43 @@ impl State {
                     for (i, t) in p
                         .tasks
                         .iter()
-                        .filter(|t| t.status == *status && self.filter.matches(t))
+                        .filter(|t| t.status == *status && p.matches_filter(&self.filter, t))
                         .enumerate()
                     {
-                        let y = top + row + self.px(2) + i as i32 * self.px(88);
-                        let card = rect(cx + 4, y, width - 8, self.px(80));
+                        let y = top + row + self.px(2) + i as i32 * self.px(120);
+                        let card = rect(cx + self.px(4), y, width - self.px(8), self.px(112));
                         if card.bottom < a.top + row || card.top > a.bottom {
                             continue;
                         }
                         fill(
                             dc,
                             card,
-                            if self.selected == Some(t.id) {
+                            if self.drag.is_some_and(|d| d.active && d.id == t.id) {
+                                COLORREF(0xeeeeee)
+                            } else if self.selected == Some(t.id) {
                                 COLORREF(0xf8dfbb)
                             } else {
                                 grey
                             },
                         );
-                        label(
+                        wrapped_label(
                             dc,
-                            rect(card.left + 6, y, card.right - card.left - 12, row),
+                            rect(
+                                card.left + self.px(6),
+                                y + self.px(4),
+                                card.right - card.left - self.px(12),
+                                self.px(44),
+                            ),
                             &format!("#{} {}", t.id, t.title),
-                            black,
                         );
                         label(
                             dc,
-                            rect(card.left + 6, y + row, card.right - card.left - 12, row),
+                            rect(
+                                card.left + self.px(6),
+                                y + self.px(50),
+                                card.right - card.left - self.px(12),
+                                row,
+                            ),
                             &format!(
                                 "{} · {}% · {}h",
                                 master_name(t.assignee),
@@ -1983,7 +2352,12 @@ impl State {
                         );
                         label(
                             dc,
-                            rect(card.left + 6, y + row * 2, card.right - card.left - 12, row),
+                            rect(
+                                card.left + self.px(6),
+                                y + self.px(74),
+                                card.right - card.left - self.px(12),
+                                row,
+                            ),
                             &format!(
                                 "{} / {} / {}",
                                 t.priority.label(),
@@ -2007,7 +2381,7 @@ impl State {
                             status.label(),
                             p.tasks
                                 .iter()
-                                .filter(|t| t.status == *status && self.filter.matches(t))
+                                .filter(|t| t.status == *status && p.matches_filter(&self.filter, t))
                                 .count()
                         ),
                         black,
@@ -2015,36 +2389,18 @@ impl State {
                 }
             }
             2 | 3 => {
-                let widths = [
-                    60, 300, 100, 90, 110, 110, 130, 130, 110, 110, 80, 80, 130, 110, 140,
-                ];
-                let headers = [
-                    "ID",
-                    "件名",
-                    "状態",
-                    "優先度",
-                    "重大度",
-                    "レビュー",
-                    "確認者",
-                    "担当者",
-                    "カテゴリ",
-                    "開始日",
-                    "期限",
-                    "進捗",
-                    "工数(h)",
-                    "工数集計",
-                    "対応タスクID",
-                ];
-                for (i, t) in p
-                    .tasks
-                    .iter()
-                    .filter(|t| self.filter.matches(t))
-                    .filter(|t| {
-                        if self.view == 3 {
-                            t.kind == Kind::Issue
-                        } else {
-                            t.kind == Kind::Task
-                        }
+                for (i, (t, depth)) in p
+                    .ordered_tasks()
+                    .into_iter()
+                    .filter(|(t, _)| p.matches_filter(&self.filter, t))
+                    .filter(|(t, _)| {
+                        self.grid.all_kinds
+                            || t.kind
+                                == if self.view == 3 {
+                                    Kind::Issue
+                                } else {
+                                    Kind::Task
+                                }
                     })
                     .enumerate()
                 {
@@ -2052,32 +2408,7 @@ impl State {
                     if y + row < a.top + row || y > a.bottom {
                         continue;
                     }
-                    let values = [
-                        t.id.to_string(),
-                        t.title.clone(),
-                        t.status.label().into(),
-                        t.priority.label().into(),
-                        t.severity.label().into(),
-                        t.review.label().into(),
-                        master_name(t.reviewer).into(),
-                        master_name(t.assignee).into(),
-                        master_name(t.category).into(),
-                        t.start.map(|d| d.to_string()).unwrap_or_default(),
-                        t.due.map(|d| d.to_string()).unwrap_or_default(),
-                        format!("{}%", t.progress),
-                        t.estimate.to_string(),
-                        if t.include_in_effort {
-                            "算入".into()
-                        } else {
-                            "除外".into()
-                        },
-                        t.related_tasks
-                            .iter()
-                            .map(|id| id.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                    ];
-                    let rr = rect(x, y, self.px(1800), row);
+                    let rr = rect(x, y, self.content.0, row);
                     fill(
                         dc,
                         rr,
@@ -2090,113 +2421,74 @@ impl State {
                         },
                     );
                     let mut cx = x;
-                    for (value, width) in values.iter().zip(widths) {
-                        let w = self.px(width);
-                        label(dc, rect(cx + 4, y, w - 8, row), value, black);
+                    for (col, c) in table::COLUMNS.iter().enumerate() {
+                        let w = self.px(c.width);
+                        if self.grid.contains(i, col) {
+                            fill(dc, rect(cx, y, w, row), COLORREF(0xffe5c7));
+                        }
+                        let mut value = table::value(p, t, c.key);
+                        if c.key == "title" {
+                            value = format!(
+                                "{}{}{}",
+                                "  ".repeat(depth.min(20)),
+                                if t.milestone { "◆ " } else { "" },
+                                value
+                            );
+                        }
+                        label(
+                            dc,
+                            rect(cx + self.px(4), y, w - self.px(8), row),
+                            &value,
+                            black,
+                        );
                         line(dc, (cx + w, y), (cx + w, y + row), COLORREF(0xe0e0e0));
                         cx += w;
                     }
+                    line(
+                        dc,
+                        (x, y + row - 1),
+                        (x + self.content.0, y + row - 1),
+                        COLORREF(0xe0e0e0),
+                    );
                     self.hits.push((rr, t.id));
                 }
                 fill(dc, rect(a.left, a.top, a.right - a.left, row), grey);
                 let mut cx = x;
-                for (header, width) in headers.iter().zip(widths) {
-                    let w = self.px(width);
-                    label(dc, rect(cx + 4, a.top, w - 8, row), header, black);
+                for c in table::COLUMNS {
+                    let w = self.px(c.width);
+                    let filtered = self.filter.columns.contains_key(c.key);
+                    label(
+                        dc,
+                        rect(cx + self.px(4), a.top, w - self.px(8), row),
+                        &format!(
+                            "{}{}",
+                            if c.key == "id" { "↕ ID" } else { c.label },
+                            if filtered { " ▼" } else { "" }
+                        ),
+                        if filtered { blue } else { black },
+                    );
+                    line(
+                        dc,
+                        (cx + w, a.top),
+                        (cx + w, a.top + row),
+                        COLORREF(0xc0c0c0),
+                    );
                     cx += w;
                 }
             }
-            1 => {
-                let first = self.gantt_range().map_or(p.start, |r| r.0);
-                let name_w = self.px(230);
-                let day = self.px(20);
-                let timeline = unsafe { SaveDC(dc) };
-                unsafe {
-                    IntersectClipRect(dc, a.left + name_w, a.top, a.right, a.bottom);
-                }
-                let day_start = (self.x / day).max(0);
-                let day_end = day_start + (a.right - a.left) / day + 2;
-                for n in day_start..day_end {
-                    let Some(d) = first.checked_add_days(chrono::Days::new(n as u64)) else {
-                        continue;
-                    };
-                    let cx = x + name_w + n * day;
-                    if !p.is_workday(d) {
-                        fill(
-                            dc,
-                            rect(cx, a.top, day, a.bottom - a.top),
-                            COLORREF(0xf1f1f1),
-                        );
-                    }
-                    line(dc, (cx, a.top), (cx, a.bottom), COLORREF(0xe8e8e8));
-                    if n % 7 == 0 {
-                        label(
-                            dc,
-                            rect(cx, a.top, self.px(100), row),
-                            &d.format("%Y-%m-%d").to_string(),
-                            black,
-                        );
-                    }
-                }
-                let bars = unsafe { SaveDC(dc) };
-                unsafe {
-                    IntersectClipRect(dc, a.left + name_w, a.top + row, a.right, a.bottom);
-                }
-                for (i, t) in p.tasks.iter().filter(|t| !t.archived).enumerate() {
-                    let y = top + (i as i32 + 1) * row;
-                    if y + row < a.top + row || y > a.bottom {
-                        continue;
-                    }
-                    if let Some((start, due)) = t.start.zip(t.due) {
-                        let bx = x + name_w + (start - first).num_days() as i32 * day;
-                        let w = ((due - start).num_days() + 1).max(1) as i32 * day;
-                        let bar = rect(bx, y + 5, w, row - 10);
-                        fill(dc, bar, color(t.status));
-                        fill(
-                            dc,
-                            rect(
-                                bx,
-                                y + row - 9,
-                                (i64::from(w) * i64::from(t.progress) / 100) as i32,
-                                4,
-                            ),
-                            blue,
-                        );
-                    }
-                }
-                unsafe {
-                    let _ = RestoreDC(dc, bars);
-                    let _ = RestoreDC(dc, timeline);
-                }
-                let names = unsafe { SaveDC(dc) };
-                unsafe {
-                    IntersectClipRect(dc, a.left, a.top + row, a.right, a.bottom);
-                }
-                for (i, t) in p.tasks.iter().filter(|t| !t.archived).enumerate() {
-                    let y = top + (i as i32 + 1) * row;
-                    if y + row <= a.top + row || y >= a.bottom {
-                        continue;
-                    }
-                    label(
-                        dc,
-                        rect(a.left + 6, y, name_w - 12, row),
-                        &format!("#{} {}", t.id, t.title),
-                        black,
-                    );
-                    self.hits
-                        .push((rect(a.left, y, a.right - a.left, row), t.id));
-                }
-                unsafe {
-                    let _ = RestoreDC(dc, names);
-                }
-                fill(dc, rect(a.left, a.top, name_w, row), grey);
-                label(
-                    dc,
-                    rect(a.left + 8, a.top, name_w - 16, row),
-                    "項目 / 予定日程",
-                    black,
-                );
-            }
+            1 => timeline::paint(
+                dc,
+                p,
+                &self.timeline,
+                timeline::Viewport {
+                    dpi: self.dpi,
+                    body: a,
+                    x: self.x,
+                    y: self.y,
+                },
+                &self.filter,
+                &mut self.hits,
+            ),
             4 => {
                 let graph = &self.network;
                 let by_id: BTreeMap<_, _> = p.tasks.iter().map(|t| (t.id, t)).collect();
@@ -2396,6 +2688,100 @@ impl State {
             }
             _ => {}
         }
+        if let Some(drag) = self.drag.filter(|d| d.active && self.view == 0) {
+            if let Some(status) = self.drop_status(drag.pointer) {
+                let col = Status::ALL.iter().position(|s| *s == status).unwrap();
+                let target = rect(
+                    x + col as i32 * self.px(240),
+                    a.top,
+                    self.px(232),
+                    a.bottom - a.top,
+                );
+                outline(dc, target, blue);
+                outline(
+                    dc,
+                    rect(
+                        target.left + 1,
+                        target.top + 1,
+                        target.right - target.left - 2,
+                        target.bottom - target.top - 2,
+                    ),
+                    blue,
+                );
+            }
+            if let Some(task) = p.tasks.iter().find(|t| t.id == drag.id) {
+                let card = drag.card(self.dpi);
+                fill(
+                    dc,
+                    rect(
+                        card.left + self.px(4),
+                        card.top + self.px(4),
+                        card.right - card.left,
+                        card.bottom - card.top,
+                    ),
+                    COLORREF(0xb8b8b8),
+                );
+                fill(dc, card, COLORREF(0xf8dfbb));
+                outline(dc, card, blue);
+                wrapped_label(
+                    dc,
+                    rect(
+                        card.left + self.px(8),
+                        card.top + self.px(6),
+                        card.right - card.left - self.px(16),
+                        self.px(44),
+                    ),
+                    &format!("#{} {}", task.id, task.title),
+                );
+                label(
+                    dc,
+                    rect(
+                        card.left + self.px(8),
+                        card.top + self.px(54),
+                        card.right - card.left - self.px(16),
+                        self.px(24),
+                    ),
+                    &self.drop_status(drag.pointer).map_or_else(
+                        || "移動先の列で離してください".into(),
+                        |s| format!("→ {} へ移動", s.label()),
+                    ),
+                    black,
+                );
+                label(
+                    dc,
+                    rect(
+                        card.left + self.px(8),
+                        card.top + self.px(82),
+                        card.right - card.left - self.px(16),
+                        self.px(24),
+                    ),
+                    "Escでキャンセル",
+                    black,
+                );
+            }
+        }
+        if matches!(self.view, 2 | 3)
+            && let Some(drag) = self.drag.filter(|d| d.active)
+        {
+            let target = self
+                .hits
+                .iter()
+                .find(|(r, _)| drag.pointer.y >= r.top && drag.pointer.y < r.bottom)
+                .map(|(r, _)| r.top)
+                .unwrap_or(a.bottom - self.px(3))
+                .max(a.top + row);
+            fill(dc, rect(a.left, target, a.right - a.left, self.px(3)), blue);
+            if let Some(t) = p.tasks.iter().find(|t| t.id == drag.id) {
+                let r = rect(
+                    drag.pointer.x + self.px(12),
+                    drag.pointer.y + self.px(8),
+                    self.px(300),
+                    row,
+                );
+                fill(dc, r, COLORREF(0xf8dfbb));
+                label(dc, r, &format!("移動: #{} {}", t.id, t.title), black);
+            }
+        }
         unsafe {
             let _ = RestoreDC(dc, saved);
         }
@@ -2419,7 +2805,11 @@ fn menu() -> windows::core::Result<HMENU> {
                     (101, "データベースを開く".into()),
                     (102, "プロジェクトを追加".into()),
                     (103, "プロジェクト設定".into()),
-                    (104, "プロジェクトをJSON出力".into()),
+                    (104, "プロジェクトをCSV出力…".into()),
+                    (109, "Jira用CSVを出力…".into()),
+                    (105, "PostgreSQLへ接続（環境変数）".into()),
+                    (107, "現在のSQLiteからPostgreSQLへ移行…".into()),
+                    (106, "SQLiteへ書き出し…".into()),
                     (118, "再読み込み".into()),
                 ],
             ),
@@ -2427,6 +2817,7 @@ fn menu() -> windows::core::Result<HMENU> {
                 "編集",
                 vec![
                     (110, "タスクを追加".into()),
+                    (121, "選択したタスクの子タスクを追加…".into()),
                     (111, "課題を追加".into()),
                     (112, "選択項目を編集".into()),
                     (113, "選択項目を保管（マスタは削除）…".into()),
@@ -2472,6 +2863,14 @@ fn menu() -> windows::core::Result<HMENU> {
                     (412, "保管済みの項目を表示".into()),
                 ],
             ),
+            (
+                "検索",
+                vec![
+                    (420, "タスクの全文検索…\tCtrl+F".into()),
+                    (411, "絞り込みをすべて解除".into()),
+                ],
+            ),
+            ("ガント設定", vec![(430, "表示起点・列幅・稲妻線…".into())]),
             ("ヘルプ", vec![(140, "使い方 / MCP設定".into())]),
         ];
         for (title, items) in groups {
@@ -2486,6 +2885,19 @@ fn menu() -> windows::core::Result<HMENU> {
 }
 unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     unsafe {
+        if m == WM_INITMENUPOPUP && SMOKE_CONTEXT_MENU.with(|flag| flag.replace(false)) {
+            let popup = HMENU(w.0 as *mut std::ffi::c_void);
+            if GetMenuItemCount(Some(popup)) != SMOKE_MENU_SIZE.with(|s| s.get()) {
+                SMOKE_ERRORS.with(|errors| {
+                    errors
+                        .borrow_mut()
+                        .push("Task context menu is missing actions".into())
+                });
+            }
+            // Close only this owned popup through its real modal message loop.
+            let _ = PostMessageW(Some(h), WM_CANCELMODE, WPARAM(0), LPARAM(0));
+            return LRESULT(0);
+        }
         if m == WM_DESTROY {
             PostQuitMessage(0);
             return LRESULT(0);
@@ -2498,13 +2910,32 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
             let dc = BeginPaint(h, &mut ps);
             let mut r = RECT::default();
             let _ = GetClientRect(h, &mut r);
-            APP.with(|a| {
+            let buffer = CreateCompatibleDC(Some(dc));
+            let bitmap = CreateCompatibleBitmap(dc, r.right.max(1), r.bottom.max(1));
+            let buffered = !buffer.is_invalid() && !bitmap.is_invalid();
+            let previous = if buffered {
+                SelectObject(buffer, bitmap.into())
+            } else {
+                HGDIOBJ::default()
+            };
+            let painted = APP.with(|a| {
                 if let Ok(mut state) = a.try_borrow_mut()
                     && let Some(s) = state.as_mut()
                 {
-                    s.paint(dc, r);
+                    s.paint(if buffered { buffer } else { dc }, r);
+                    true
+                } else {
+                    false
                 }
             });
+            if buffered {
+                if painted {
+                    let _ = BitBlt(dc, 0, 0, r.right, r.bottom, Some(buffer), 0, 0, SRCCOPY);
+                }
+                SelectObject(buffer, previous);
+            }
+            let _ = DeleteObject(bitmap.into());
+            let _ = DeleteDC(buffer);
             let _ = EndPaint(h, &ps);
             return LRESULT(0);
         }
@@ -2530,8 +2961,12 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         s.command(id)
                     }
                 }
-                WM_NOTIFY => {
+                WM_NOTIFY => (|| -> Result<()> {
                     if (*(l.0 as *const NMHDR)).code == TCN_SELCHANGE {
+                        s.finish_cell_edit(true)?;
+                        s.cancel_drag();
+                        s.grid.all_kinds = false;
+                        s.grid.selection = false;
                         s.view = send(s.tabs, TCM_GETCURSEL, 0, 0).0.max(0) as usize;
                         s.selected = None;
                         s.x = 0;
@@ -2541,9 +2976,12 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         invalidate(h);
                     }
                     Ok(())
-                }
+                })(),
                 WM_TIMER => {
-                    if s.store.data_version().ok().is_some_and(|v| v != s.version) {
+                    if w.0 == DRAG_TIMER {
+                        s.scroll_drag();
+                        Ok(())
+                    } else if s.store.data_version().ok().is_some_and(|v| v != s.version) {
                         s.reload()
                     } else {
                         Ok(())
@@ -2582,64 +3020,162 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     invalidate(h);
                     Ok(())
                 }
-                WM_LBUTTONDOWN => {
+                WM_LBUTTONDOWN => (|| -> Result<()> {
+                    s.finish_cell_edit(true)?;
                     let x = l.0 as u16 as i16 as i32;
                     let y = (l.0 >> 16) as u16 as i16 as i32;
                     let _ = SetFocus(Some(h));
-                    s.selected = s
-                        .hits
-                        .iter()
-                        .rev()
-                        .find(|(r, _)| {
-                            inside(*r, x, y)
-                                && inside(s.body, x, y)
-                                && (s.view == 4
-                                    || y >= s.body.top + px(h, if s.view == 0 { 20 } else { 30 }))
-                        })
-                        .map(|(_, id)| *id);
-                    if s.view == 0 {
-                        s.drag = s.selected;
+                    if s.view == 1
+                        && (x - s.body.left - s.timeline.width(s.dpi, s.body)).abs() <= s.px(5)
+                    {
+                        s.timeline.resizing = true;
                         let _ = SetCapture(h);
+                        return Ok(());
+                    }
+                    s.selected = s.hit_task(x, y);
+                    if matches!(s.view, 2 | 3) {
+                        s.select_grid_point(POINT { x, y }, GetKeyState(VK_SHIFT.0 as i32) < 0);
+                    }
+                    if (s.view == 0 || (matches!(s.view, 2 | 3) && s.grid.current.1 == 0))
+                        && let Some((r, id)) = s.hits.iter().find(|(_, id)| Some(*id) == s.selected)
+                    {
+                        s.drag = Some(CardDrag {
+                            id: *id,
+                            start: POINT { x, y },
+                            pointer: POINT { x, y },
+                            offset: POINT {
+                                x: x - r.left,
+                                y: y - r.top,
+                            },
+                            active: false,
+                        });
+                        let _ = SetCapture(h);
+                        SetTimer(Some(h), DRAG_TIMER, 50, None);
                     }
                     invalidate(h);
                     Ok(())
-                }
+                })(),
                 WM_LBUTTONUP => {
-                    let _ = ReleaseCapture();
-                    if let Some(id) = s.drag.take() {
-                        let x = l.0 as u16 as i16 as i32;
-                        let y = (l.0 >> 16) as u16 as i16 as i32;
-                        if inside(s.body, x, y) {
-                            let col = ((x + s.x) / px(h, 240)) as usize;
-                            if let Some(status) = Status::ALL.get(col) {
-                                if let Some(task) = s
-                                    .project
-                                    .as_ref()
-                                    .and_then(|p| p.tasks.iter().find(|t| t.id == id))
-                                    .cloned()
-                                {
-                                    s.set_status(task, *status)
-                                } else {
-                                    Ok(())
-                                }
-                            } else {
-                                Ok(())
+                    if s.timeline.resizing {
+                        s.timeline.resizing = false;
+                        let _ = ReleaseCapture();
+                    }
+                    let drag = s.drag;
+                    s.grid.selecting = false;
+                    s.cancel_drag();
+                    let point = POINT {
+                        x: l.0 as u16 as i16 as i32,
+                        y: (l.0 >> 16) as u16 as i16 as i32,
+                    };
+                    if matches!(s.view, 2 | 3)
+                        && let Some(drag) = drag.filter(|d| d.active)
+                        && inside(s.body, point.x, point.y)
+                    {
+                        let before = s.hit_task(point.x, point.y);
+                        if before != Some(drag.id) {
+                            {
+                                s.selected = Some(drag.id);
+                                s.grid.selection = false;
+                                s.apply(Change::MoveTask {
+                                    id: drag.id,
+                                    before,
+                                })
                             }
                         } else {
                             Ok(())
                         }
+                    } else if let Some(drag) = drag.filter(|d| d.active)
+                        && let Some(status) = s.drop_status(point)
+                        && let Some(task) = s
+                            .project
+                            .as_ref()
+                            .and_then(|p| p.tasks.iter().find(|t| t.id == drag.id))
+                            .cloned()
+                    {
+                        s.set_status(task, status)
                     } else {
                         Ok(())
                     }
                 }
-                WM_LBUTTONDBLCLK => s.command(112),
-                WM_KEYDOWN => match w.0 as u16 {
-                    key if key == VK_F1.0 => s.command(140),
-                    key if key == VK_RETURN.0 => s.command(112),
-                    key if key == VK_DELETE.0 => s.command(113),
-                    _ => Ok(()),
-                },
+                WM_MOUSEMOVE => {
+                    if s.timeline.resizing {
+                        s.timeline.name_width = ((l.0 as u16 as i16 as i32 - s.body.left) * 96
+                            / s.dpi)
+                            .clamp(160, 1600);
+                        s.layout();
+                        invalidate(h);
+                    }
+
+                    if s.grid.selecting && s.drag.is_none() && w.0 & 1 != 0 {
+                        s.select_grid_point(
+                            POINT {
+                                x: l.0 as u16 as i16 as i32,
+                                y: (l.0 >> 16) as u16 as i16 as i32,
+                            },
+                            true,
+                        );
+                    }
+                    s.move_drag(POINT {
+                        x: l.0 as u16 as i16 as i32,
+                        y: (l.0 >> 16) as u16 as i16 as i32,
+                    });
+                    Ok(())
+                }
+                WM_CAPTURECHANGED | WM_CANCELMODE | WM_RBUTTONDOWN => {
+                    s.cancel_drag();
+                    Ok(())
+                }
+                WM_ACTIVATEAPP => {
+                    if w.0 == 0 {
+                        s.cancel_drag();
+                    }
+                    Ok(())
+                }
+                GRID_FINISH => s.finish_grid_message(w.0 == 1, l.0 != 0),
+                WM_LBUTTONDBLCLK => {
+                    if matches!(s.view, 2 | 3) {
+                        s.begin_cell_edit(None)
+                    } else {
+                        s.command(112)
+                    }
+                }
+                WM_CONTEXTMENU => s.task_context_menu(POINT {
+                    x: l.0 as u16 as i16 as i32,
+                    y: (l.0 >> 16) as u16 as i16 as i32,
+                }),
+                WM_CHAR
+                    if matches!(s.view, 2 | 3)
+                        && w.0 >= 32
+                        && GetKeyState(VK_CONTROL.0 as i32) >= 0 =>
+                {
+                    s.begin_cell_edit(char::from_u32(w.0 as u32))
+                }
+                WM_KEYDOWN => {
+                    if let Some(result) = s.grid_key(w.0 as u16) {
+                        result
+                    } else {
+                        match w.0 as u16 {
+                            key if key == VK_ESCAPE.0 => {
+                                s.cancel_drag();
+                                Ok(())
+                            }
+                            key if key == VK_APPS.0
+                                || (key == VK_F10.0 && GetKeyState(VK_SHIFT.0 as i32) < 0) =>
+                            {
+                                s.task_context_menu(POINT { x: -1, y: -1 })
+                            }
+                            key if key == b'F' as u16 && GetKeyState(VK_CONTROL.0 as i32) < 0 => {
+                                s.search_form()
+                            }
+                            key if key == VK_F1.0 => s.command(140),
+                            key if key == VK_RETURN.0 => s.command(112),
+                            key if key == VK_DELETE.0 => s.command(113),
+                            _ => Ok(()),
+                        }
+                    }
+                }
                 WM_DPICHANGED => {
+                    s.cancel_drag();
                     let font = window_font(h);
                     let old = s.font;
                     s.font = font;
@@ -2667,6 +3203,8 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
             if let Err(e) = result {
                 s.status = e.to_string();
                 message(h, &e.to_string());
+                s.focus_cell_edit();
+                send(s.tabs, TCM_SETCURSEL, s.view, 0);
                 invalidate(h);
             }
             true
@@ -2689,7 +3227,10 @@ pub fn run() -> Result<()> {
         let _ = InitCommonControlsEx(&common);
         yy_ui_win::font::register_gdi();
         let args: Vec<_> = std::env::args_os().skip(1).collect();
-        let smoke_dir = if args.first().is_some_and(|a| a == "--ui-smoke-test") {
+        let smoke_dir = if args
+            .first()
+            .is_some_and(|a| a == "--ui-smoke-test" || a == "--ui-smoke-postgres")
+        {
             Some(PathBuf::from(args.get(1).ok_or("Missing smoke directory")?))
         } else {
             None
@@ -2708,10 +3249,26 @@ pub fn run() -> Result<()> {
                     .join("YYProject/projects.sqlite3")
             })
         };
-        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        if args.first().is_none_or(|a| a != "--postgres")
+            && let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
+        {
             std::fs::create_dir_all(parent)?;
         }
-        let store = Store::open(&path, false)?;
+        let store = if args
+            .first()
+            .is_some_and(|a| a == "--postgres" || a == "--ui-smoke-postgres")
+        {
+            Store::connect_postgres(
+                &std::env::var("YYPROJECT_DATABASE_URL")
+                    .map_err(|_| "Set YYPROJECT_DATABASE_URL")?,
+                false,
+            )?
+        } else {
+            Store::open(&path, false)?
+        };
+        if args.first().is_some_and(|a| a == "--ui-smoke-postgres") && !store.list()?.is_empty() {
+            return Err("PostgreSQL smoke test requires an empty dedicated database".into());
+        }
         let instance = GetModuleHandleW(None)?;
         RegisterClassW(&WNDCLASSW {
             style: CS_DBLCLKS,
@@ -2806,6 +3363,8 @@ pub fn run() -> Result<()> {
             content: (0, 0),
             hits: vec![],
             drag: None,
+            grid: GridState::default(),
+            timeline: Timeline::default(),
             version: 0,
             status: String::new(),
             body: RECT::default(),

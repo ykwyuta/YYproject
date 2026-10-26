@@ -2,3 +2,6 @@
 __pycache__/
 /demo/*-wal
 /demo/*-shm
+
+.env
+.env.*.local

@@ -87,6 +87,27 @@ fn tools() -> Value {
     ] {
         tools.push(json!({"name":name,"description":description,"inputSchema":input,"annotations":{"readOnlyHint":read_only,"destructiveHint":!read_only,"openWorldHint":false}}));
     }
+    for tool in &mut tools {
+        if tool["name"] == "project_change" {
+            let variants = tool["inputSchema"]["properties"]["change"]["oneOf"]
+                .as_array_mut()
+                .unwrap();
+            variants[0]["properties"]["task"]["properties"]["parent"] =
+                json!({"type":["integer","null"],"minimum":1});
+            variants[0]["properties"]["task"]["properties"]["milestone"] =
+                json!({"type":"boolean","default":false});
+            variants[3]["properties"]["master"]["properties"]["parent"] =
+                json!({"type":["integer","null"],"minimum":1});
+            let mut task = variants[0]["properties"]["task"].clone();
+            task["required"] = json!(["id", "title"]);
+            variants.push(schema(json!({"operation":{"const":"save_tasks"},"tasks":{"type":"array","items":task,"minItems":1,"maxItems":2000}}),&["operation","tasks"]));
+            variants.push(schema(json!({"operation":{"const":"move_task"},"id":id,"before":{"type":["integer","null"],"minimum":1}}),&["operation","id","before"]));
+        }
+        if tool["name"] == "task_list" {
+            tool["inputSchema"]["properties"]["columns"] =
+                json!({"type":"object","additionalProperties":{"type":"string"}});
+        }
+    }
     json!({"tools":tools})
 }
 fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std::error::Error>> {
@@ -113,6 +134,7 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
             "severity",
             "review",
             "archived",
+            "columns",
         ],
         "audit_list" => &["project_id", "after"],
         "project_create" => &["name", "start", "finish", "actor"],
@@ -220,10 +242,12 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
                 object.remove(key);
             }
             let filter: yy_project::TaskFilter = serde_json::from_value(selection)?;
+            filter.validate()?;
             let rows = p
-                .tasks
-                .iter()
-                .filter(|t| filter.matches(t))
+                .ordered_tasks()
+                .into_iter()
+                .map(|(t, _)| t)
+                .filter(|t| p.matches_filter(&filter, t))
                 .collect::<Vec<_>>();
             json!({"revision":p.revision,"total":rows.len(),"tasks":rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>()})
         }

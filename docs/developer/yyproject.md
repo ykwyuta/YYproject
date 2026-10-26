@@ -1,12 +1,12 @@
 # yyprojectの内部構成
 
-このリポジトリは独立Cargoワークスペース（Rust 1.92以上）。`core` がSQLite・モデル・検証・日程・履歴、`app` がstdio MCPとWindowsネイティブUIを持つ。GUIはRust／Win32・GDIで実装し、ブラウザーやJavaScriptで業務処理を行わない。
+このリポジトリは独立Cargoワークスペース（Rust 1.92以上）。`core` がSQLite／PostgreSQL・モデル・検証・日程・履歴、`app` がstdio MCPとWindowsネイティブUIを持つ。GUIはRust／Win32・GDIで実装し、ブラウザーやJavaScriptで業務処理を行わない。
 
 既存資材は `yy-ui-win` の同梱UDEV Gothic・ヘルプ・BMP出力、yyeditor由来のビルドスクリプト（アイコン／DPI／Common Controlsのマニフェスト）、YYアイコン体系を使う。`yy-ui-win` はyyeditorの公開済みコミットをGit依存として参照し、UI・フォント・プレビュー本体を複製しない。ビルド補助とアイコン生成は本リポジトリの `app/build.rs` と `tools/gen_icon.py` で管理する。由来は [NOTICE.md](../../NOTICE.md)。
 
 ## 保存
 
-SQLite 3はrusqliteのbundled機能で同梱。application_idは1499025482、user_versionは2（旧形式1も読込可能）。他アプリのDBや未知の版は拒否する。WALとforeign_keysを有効にする。
+SQLite 3はrusqliteのbundled機能で同梱。application_idは1499025482、user_versionは3（旧形式1・2も読込可能）。他アプリのDBや未知の版は拒否する。WALとforeign_keysを有効にする。
 
 `projects(id,name,revision,document)` はプロジェクト集約をJSONとして保存する。タスク・マスタ・依存関係・日ごとの集計を1トランザクションで検証・保存するため、途中状態を読ませない。`audit(id,project_id,at,actor,revision,change)` にコミットと同じトランザクションで操作を追記する。監査時刻はUTC、日単位の進捗は実行環境のローカル日付を使う。
 
@@ -22,7 +22,7 @@ DBパスとread-onlyは起動時固定。任意SQL・HTTPポート・シェル�
 
 ## ビルド
 
-Rust 1.92以上を使用します。CIはstableで検査します。WindowsはVisual Studio Build Tools（MSVC C++とWindows SDK）、LinuxはCコンパイラと標準ビルドツールが必要です。SQLiteは同梱ソースからビルドします。共通UIとYYLibraryは公開Gitリポジトリから取得され、兄弟ディレクトリのチェックアウトは不要です。
+Rust 1.92以上を使用します。CIはstableで検査します。WindowsはVisual Studio Build Tools（MSVC C++とWindows SDK）、LinuxはCコンパイラと標準ビルドツール、pkg-config、OpenSSL開発ヘッダーが必要です。SQLiteは同梱ソースからビルドします。共通UIとYYLibraryは公開Gitリポジトリから取得され、兄弟ディレクトリのチェックアウトは不要です。
 
 ```sh
 cargo build --workspace --release --locked
@@ -75,4 +75,32 @@ reviewerは担当者マスタ参照。レビューありなら確認者必須、
 
 RemoveTaskはarchived=trueにする保管。RestoreTaskはfalseへ戻す。項目と依存レコードを消さず、全体DAGとマスタ参照の検証も継続する。active_dependenciesは保管項目へ接続する関係を除外し、日程・描画・完了ゲートに利用する。マスタ削除は保管項目の参照も検査する。保管項目は文書サイズ/項目数上限に含む。removal_previewは読取専用で版・項目・依存・関連課題を返す。
 
-新規DBは形式2。形式1への書き込み成功時に、同じトランザクションでuser_versionを2へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。プロジェクトJSON出力には保管項目も含める。
+新規DBは形式3。形式1・2への書き込み成功時に、同じトランザクションでuser_versionを3へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。CSV出力の保管項目はフィルターで選ぶ。SQLiteへの書き出しは保管項目も監査も含める。
+
+## カンバンの入力と描画
+
+カードのドラッグは押下位置・カード内の相対位置・現在位置・移動開始閾値を保持する。WindowsのDPI別ドラッグ閾値を超えるまでは選択だけを行い、マウスキャプチャ中のWM_MOUSEMOVEで追従表示を更新する。50msの専用タイマーで実クライアント領域の端からスクロールし、移動先は現在のスクロール位置を加えて判定する。画面外へのドロップ、Esc、右クリック、キャプチャ喪失、アプリ非アクティブ化、表示・案件切替、再読込で破棄する。タイマーとキャプチャを解放した後に既存のset_statusを呼び、完了ゲート・再開進捗・版競合・監査を維持する。同じ状態への移動は保存しない。
+
+描画はメモリDCを介し、移動先の枠とカードのプレビューを最後に重ねる。カードの件名は2行、付加情報は別行とし、寸法はDPIに追従する。一覧の内容幅と描画は共通の列幅配列を使い、右端列まで水平スクロールできる。右クリックメニューは既存の編集・状態変更コマンドを呼ぶ。
+
+## 階層・グリッド・ガント・CSV
+
+Task.parentは任意の親タスクID。親はTask種別だけに限定し、循環・欠損親を拒否する。ordered_tasksは反復DFSで兄弟の保存順を維持し、深い階層でもコールスタックを使わない。Master.parentはカテゴリのみで、根を含めて最大3階層。親カテゴリでの絞り込みは子孫を含む。階層は集約や依存関係とは別で、自動集計・自動完了は行わない。
+
+core/table.rsの共通列定義をGUI・コピー・CSV・列値フィルターで使う。一覧のカテゴリは件名の直前。native/grid.rsはセル選択・EDITコントロール・F2/Enter/Esc/Tab・矢印・Ctrl+C/V/A・Deleteを扱う。clipboardは固定SHAのyy-ui-win公開APIを使用し、yysheetの操作規約（sheet/mod.rsの範囲コピーとF2編集）を参照した。UI本体は複製していない。編集の版を保持し、外部更新後の古いセル編集を拒否する。SaveTasksは既存ID最大2000件を依存順に適用し、最後に全体を検証する。Storeの1トランザクション内なので一部の失敗で全部をロールバックする。MoveTaskは子孫をまとめて移動先の兄弟として並べ替え、子孫内への移動は拒否する。
+
+native/timeline.rsは年・月・日・曜日の4段見出し、表示起点、可変の名前列と日幅、基準日と進捗率を結ぶ稲妻線、マイルストーンの菱形を描画する。milestoneはTaskのみで、同じ開始・期限、期間0、工数0を必須とする。表示設定はウィンドウの状態として保持する。
+
+CSVはUTF-8 BOM、CRLF、引用符の二重化で出力し、タブ区切りのクリップボードも同じ引用処理で改行を保持する。列選択とフィルターはGUIで指定する。CSVは項目交換用で、プロジェクト・依存・監査全体の復元形式ではない。
+
+## Jira用CSVの実装
+
+Jira用CSVはcore/table.rsのexport_jira_csvを使う。Jira Cloudの既存の管理者CSV取り込み向けにSummary・Issue Type・Issue ID・Parentを必須とし、追加列を限定する。フィルター一致項目の祖先閉包を含め、Epic、標準課題、Sub-taskの順に安定ソートする。YYprojectのIDは取り込み内の一時IDで、Jira Issue Keyは出力しない。選択した2／3階層を超えた場合や不適合のSummaryは保存前に拒否する。GUIの出力フォームは検証時点のスナップショットを使い、DBは更新しない。
+
+## PostgreSQL接続と移送の実装
+
+StoreはSQLiteとPostgreSQLを振り分ける。PostgreSQLは同期postgresクライアントとnative-tlsを使用し、OSの証明書ストアを利用する。接続文字列はYYPROJECT_DATABASE_URLで受け渡し、表示・監査に含めない。専用yyprojectスキーマのmetaにapplication_id・形式版3・変更通番を保持する。接続初期化はadvisory lock、更新はSELECT FOR UPDATEとexpected_revision、監査・変更通番は同じトランザクションで適用する。GUIは変更通番を読み、他接続からの更新を再読込する。接続・文・ロックのタイムアウトを設定する。read-onlyモードはクライアントと接続の双方で更新を拒否する。
+
+移送はDatabaseDumpを介し、SQLiteは読み取りトランザクション、PostgreSQLはREPEATABLE READの読み取り専用トランザクションでスナップショットを得る。プロジェクトと監査全件を検証し、空の移行先に1トランザクションで挿入する。ID・版・日時・履歴を保持し、PostgreSQLの採番シーケンスも更新する。既存データへの統合や上書きはしない。SQLiteへの出力は同じフォルダの一時DBへ構築・チェックポイント後、persist_noclobberで新規ファイルとして確定する。
+
+compose.yamlはPostgreSQL 17、ループバックの15432ポート、healthcheck、永続ボリュームを定義する。tools/with_postgres.pyはローカルの.envを読み、接続秘密を表示せず子プロセスへ渡す。.envは配布しない。tools/test_postgres.pyは空の専用DBを前提に実MCP、2接続の競合、読み取り専用、失敗時の原子性、100件超の監査、双方向移送を検証する。CIにはLinuxのPostgreSQLジョブを追加した。Windows GUIは別途 --ui-smoke-test NEW_DIRECTORY、PostgreSQL接続では --ui-smoke-postgres NEW_DIRECTORY を使用し、後者は空の専用DBが必要。

@@ -64,6 +64,7 @@ fn cycle_missing_ids_and_master_removal_are_atomic() {
             p.revision,
             &Change::SaveMaster {
                 master: Master {
+                    parent: None,
                     id: 0,
                     kind: MasterKind::Assignee,
                     name: "担当者".into(),
@@ -133,6 +134,7 @@ fn schedule_excludes_weekends_holidays_and_applies_finish_start_lag() {
             p.revision,
             &Change::SaveMaster {
                 master: Master {
+                    parent: None,
                     id: 0,
                     kind: MasterKind::Holiday,
                     name: "休日".into(),
@@ -234,6 +236,7 @@ fn calendar_week_skipping_matches_a_day_by_day_reference() {
         .step_by(3)
         .enumerate()
         .map(|(i, n)| Master {
+            parent: None,
             id: i as i64 + 1,
             kind: MasterKind::Holiday,
             name: format!("Holiday {n}"),
@@ -470,6 +473,7 @@ fn review_classification_and_issue_effort_are_validated_and_persisted() {
             p.revision,
             &Change::SaveMaster {
                 master: Master {
+                    parent: None,
                     id: 0,
                     kind: MasterKind::Assignee,
                     name: "QA".into(),
@@ -611,6 +615,7 @@ fn archive_preview_preserves_ids_links_and_masters_and_restore_is_atomic() {
             p.revision,
             &Change::SaveMaster {
                 master: Master {
+                    parent: None,
                     id: 0,
                     kind: MasterKind::Assignee,
                     name: "保管後も必要な担当者".into(),
@@ -746,7 +751,7 @@ fn legacy_documents_keep_effort_defaults_and_only_successful_writes_upgrade_form
     assert_eq!(
         sql.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
     assert!(store.get(p.id).unwrap().tasks[0].archived);
 }

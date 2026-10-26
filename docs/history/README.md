@@ -11,3 +11,7 @@
 - [運用課題の第1次改善と再検証（2026-10-26）](verification/yyproject-improvements-2026-10-26.md)
 
 - [運用課題の第2次改善と再検証（2026-10-26）](verification/yyproject-improvements-2-2026-10-26.md)
+
+- [カンバン操作・文字表示の改善（2026-10-27）](verification/yyproject-kanban-2026-10-27.md)
+
+- [階層・グリッド・ガント・CSV・PostgreSQLの追加と検証（2026-10-27）](verification/yyproject-features-postgresql-2026-10-27.md)

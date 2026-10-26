@@ -14,7 +14,10 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
             day + chrono::Days::new(30),
             "UI-test",
         )?;
-        for title in ["最初のタスク", "後続タスク"] {
+        for title in [
+            "最初のタスク：長い日本語の件名を複数行で確認するための表示検証",
+            "後続タスク",
+        ] {
             p = s.store.apply(
                 p.id,
                 p.revision,
@@ -95,7 +98,11 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
         let a = a.borrow();
         let s = a.as_ref().unwrap();
         let current = s.project.as_ref().unwrap();
-        let mut other = Store::open(&s.path, false)?;
+        let mut other = if s.store.is_postgres() {
+            Store::connect_postgres(&std::env::var("YYPROJECT_DATABASE_URL")?, false)?
+        } else {
+            Store::open(&s.path, false)?
+        };
         let mut p = other.apply(
             current.id,
             current.revision,
@@ -176,7 +183,11 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
     let second_id = APP.with(|a| -> Result<_> {
         let a = a.borrow();
         let s = a.as_ref().unwrap();
-        let mut other = Store::open(&s.path, false)?;
+        let mut other = if s.store.is_postgres() {
+            Store::connect_postgres(&std::env::var("YYPROJECT_DATABASE_URL")?, false)?
+        } else {
+            Store::open(&s.path, false)?
+        };
         let day = chrono::Local::now().date_naive();
         Ok(other
             .create(
@@ -228,8 +239,15 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
             Ok(())
         })?;
     }
-    let mut report = vec![];
-    for (width, height) in [(1100, 700), (640, 480)] {
+    let mut report = vec![format!(
+        "Initial storage backend: {}",
+        APP.with(|a| if a.borrow().as_ref().unwrap().store.is_postgres() {
+            "PostgreSQL"
+        } else {
+            "SQLite"
+        })
+    )];
+    for (width, height) in [(px(h, 1100), px(h, 700)), (px(h, 640), px(h, 480))] {
         unsafe {
             SetWindowPos(h, None, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE)?;
         }
@@ -286,9 +304,30 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
                     s.y = 0;
                     s.layout();
                 }
+                if matches!(view, 2 | 3) {
+                    s.x = s.content.0;
+                    s.layout();
+                    capture(
+                        s,
+                        area,
+                        &directory.join(format!("table-right-{view}-{width}.bmp")),
+                    )?;
+                    let (r, id) = s.hits.first().ok_or("Scrolled table has no row")?;
+                    let y = (r.top.max(s.body.top + s.px(30)) + r.bottom.min(s.body.bottom)) / 2;
+                    if s.hit_task(s.body.right - s.px(4), y) != Some(*id) {
+                        return Err(
+                            "Rightmost table column is clipped or cannot select its row".into()
+                        );
+                    }
+                    s.x = 0;
+                    s.layout();
+                }
                 Ok(())
             })?;
         }
+    }
+    unsafe {
+        SetWindowPos(h, None, 0, 0, 640, 480, SWP_NOZORDER | SWP_NOACTIVATE)?;
     }
     send(h, WM_COMMAND, 200, 0);
     unsafe {
@@ -322,17 +361,169 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
         ))
     })?;
     let mouse = |point: (i32, i32)| ((point.1 as u32) << 16 | (point.0 as u16 as u32)) as isize;
+    let revision_before = APP.with(|a| {
+        a.borrow()
+            .as_ref()
+            .unwrap()
+            .project
+            .as_ref()
+            .unwrap()
+            .revision
+    });
+    // A click, an escaped drag, capture loss and an outside drop must never save.
     send(h, WM_LBUTTONDOWN, 1, mouse(from));
+    send(h, WM_MOUSEMOVE, 1, mouse((from.0 + 1, from.1)));
+    send(h, WM_LBUTTONUP, 0, mouse(from));
+    let mut context_point = POINT {
+        x: from.0,
+        y: from.1,
+    };
+    unsafe {
+        let _ = ClientToScreen(h, &mut context_point);
+    }
+    SMOKE_CONTEXT_MENU.with(|flag| flag.set(true));
+    send(
+        h,
+        WM_CONTEXTMENU,
+        h.0 as usize,
+        mouse((context_point.x, context_point.y)),
+    );
+    if SMOKE_CONTEXT_MENU.with(|flag| flag.replace(false)) {
+        return Err("Task context menu did not enter its native popup loop".into());
+    }
+    unsafe {
+        let _ = UpdateWindow(h);
+    }
+    for cancel in [
+        WM_KEYDOWN,
+        WM_CANCELMODE,
+        WM_CAPTURECHANGED,
+        WM_LBUTTONUP,
+        WM_RBUTTONDOWN,
+        WM_ACTIVATEAPP,
+    ] {
+        send(h, WM_LBUTTONDOWN, 1, mouse(from));
+        send(h, WM_MOUSEMOVE, 1, mouse((from.0 + 30, from.1 + 10)));
+        send(
+            h,
+            cancel,
+            if cancel == WM_KEYDOWN {
+                VK_ESCAPE.0 as usize
+            } else {
+                0
+            },
+            mouse((-10, -10)),
+        );
+        APP.with(|a| -> Result<()> {
+            let a = a.borrow();
+            let s = a.as_ref().unwrap();
+            if s.drag.is_some()
+                || unsafe { GetCapture() } == h
+                || s.project.as_ref().unwrap().revision != revision_before
+            {
+                return Err(
+                    format!("Cancelled drag saved data or retained capture: {cancel}").into(),
+                );
+            }
+            Ok(())
+        })?;
+        unsafe {
+            let _ = UpdateWindow(h);
+        }
+    }
+    // Moving within the same status must not create an audit/revision update.
+    send(h, WM_LBUTTONDOWN, 1, mouse(from));
+    send(h, WM_MOUSEMOVE, 1, mouse((from.0 + 30, from.1)));
+    send(h, WM_LBUTTONUP, 0, mouse((from.0 + 30, from.1)));
+    APP.with(|a| -> Result<()> {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        let p = s.project.as_ref().unwrap();
+        if s.store.get(p.id)?.revision != revision_before {
+            return Err("Same-column drag saved a redundant update".into());
+        }
+        Ok(())
+    })?;
+    unsafe {
+        let _ = UpdateWindow(h);
+    }
+    pump_until(|| true)?;
+    send(h, WM_LBUTTONDOWN, 1, mouse(from));
+    let bottom = APP.with(|a| {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        (from.0 + s.px(30), s.body.bottom - s.px(4))
+    });
+    send(h, WM_MOUSEMOVE, 1, mouse(bottom));
+    APP.with(|a| -> Result<()> {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        if !s.drag.is_some_and(|d| d.active) {
+            return Err(format!(
+                "Vertical drag did not start: selected={:?} hits={} from={:?} bottom={:?}",
+                s.selected,
+                s.hits.len(),
+                from,
+                bottom
+            )
+            .into());
+        }
+        Ok(())
+    })?;
+    pump_until(|| APP.with(|a| a.borrow().as_ref().unwrap().y > 0))?;
+    send(h, WM_KEYDOWN, VK_ESCAPE.0 as usize, 0);
     APP.with(|a| {
         let mut a = a.borrow_mut();
         let s = a.as_mut().unwrap();
-        s.x = (to.0 - s.body.right + s.px(60)).max(0);
+        s.y = 0;
         s.layout();
     });
+    APP.with(|a| -> Result<()> {
+        let mut a = a.borrow_mut();
+        let s = a.as_mut().unwrap();
+        let mut area = RECT::default();
+        unsafe {
+            GetClientRect(h, &mut area)?;
+        }
+        capture(s, area, &directory.join("after-vertical-drag.bmp"))
+    })?;
+    send(h, WM_LBUTTONDOWN, 1, mouse(from));
+    let edge = APP.with(|a| {
+        let a = a.borrow();
+        let s = a.as_ref().unwrap();
+        (s.body.right - s.px(8), from.1)
+    });
+    send(h, WM_MOUSEMOVE, 1, mouse(edge));
+    pump_until(|| {
+        APP.with(|a| {
+            let a = a.borrow();
+            let s = a.as_ref().unwrap();
+            s.x >= (to.0 - s.body.right + s.px(60)).max(s.px(24))
+        })
+    })?;
     let target = APP.with(|a| {
         let a = a.borrow();
         (to.0 - a.as_ref().unwrap().x, to.1)
     });
+    send(h, WM_MOUSEMOVE, 1, mouse(target));
+    APP.with(|a| -> Result<()> {
+        let mut a = a.borrow_mut();
+        let s = a.as_mut().unwrap();
+        let drag = s.drag.ok_or("Drag missing during mouse motion")?;
+        let card = drag.card(s.dpi);
+        if !drag.active
+            || card.left + drag.offset.x != target.0
+            || card.top + drag.offset.y != target.1
+            || s.drop_status(drag.pointer) != Some(Status::Done)
+        {
+            return Err("Drag preview did not follow the pointer or highlight the target".into());
+        }
+        let mut area = RECT::default();
+        unsafe {
+            GetClientRect(h, &mut area)?;
+        }
+        capture(s, area, &directory.join("drag-moving.bmp"))
+    })?;
     send(h, WM_LBUTTONUP, 0, mouse(target));
     APP.with(|a| -> Result<()> {
         let a = a.borrow();
@@ -345,7 +536,10 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
             .iter()
             .find(|t| t.id == task)
             .unwrap();
-        if t.status != Status::Done || t.progress != 100 {
+        let persisted = s.store.get(s.project.as_ref().unwrap().id)?;
+        let saved = persisted.tasks.iter().find(|t| t.id == task).ok_or("Dropped task missing in database")?;
+        if t.status != Status::Done || t.progress != 100 || saved.status != Status::Done || saved.progress != 100
+            || persisted.revision != revision_before + 1 {
             return Err(format!("Kanban drag did not persist completion: id={task} status={:?} progress={} from={from:?} target={target:?} body=({},{}..{},{}), dpi={} errors={:?}",t.status,t.progress,s.body.left,s.body.top,s.body.right,s.body.bottom,s.dpi,SMOKE_ERRORS.with(|e|e.borrow().clone())).into());
         }
         Ok(())
@@ -400,6 +594,9 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
         "Native reopening/progress and schedule cancel/confirmation/read-only details: OK".into(),
     );
     report.push("Native task/master forms, AI refresh, multiline/master preservation, project switching, eight views at two sizes, real client hit tests and kanban drag: OK".into());
+    report.push("Kanban pointer preview, target column, timer-driven edge scrolling, persisted drop, click threshold, same-column no-op, Escape/capture/outside/right-click/deactivation cancellation: OK".into());
+    report.push("Native task context menu: edit and five status actions, popup cancellation without saving: OK".into());
+    super::advanced::run(h, directory, &mut report)?;
     let demo_path = directory.join("yyproject-demo.sqlite3");
     std::fs::copy(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo/yyproject-demo.sqlite3"),
@@ -449,7 +646,7 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
                     .is_some_and(|p| p.id == *pid)
             })
         })?;
-        for (width, height) in [(1100, 700), (640, 480)] {
+        for (width, height) in [(px(h, 1100), px(h, 700)), (px(h, 640), px(h, 480))] {
             unsafe {
                 SetWindowPos(h, None, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE)?;
             }
@@ -562,7 +759,7 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
     std::fs::write(directory.join("ui-smoke.txt"), report.join("\n"))?;
     Ok(())
 }
-fn pump_until(mut predicate: impl FnMut() -> bool) -> Result<()> {
+pub(super) fn pump_until(mut predicate: impl FnMut() -> bool) -> Result<()> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         unsafe {
@@ -583,14 +780,14 @@ fn pump_until(mut predicate: impl FnMut() -> bool) -> Result<()> {
                 let a = a.borrow();
                 let s = a.as_ref().unwrap();
                 format!(
-                    "UI state did not converge: view={} dpi={} body=({},{} .. {},{}) tab rows={}",
+                    "UI state did not converge: view={} dpi={} body=({},{} .. {},{}) tab rows={} scroll={:?} content={:?} drag={:?}",
                     s.view,
                     s.dpi,
                     s.body.left,
                     s.body.top,
                     s.body.right,
                     s.body.bottom,
-                    send(s.tabs, TCM_GETROWCOUNT, 0, 0).0
+                    send(s.tabs, TCM_GETROWCOUNT, 0, 0).0, (s.x,s.y), s.content, s.drag.map(|d|(d.id,d.active,d.pointer.x,d.pointer.y))
                 )
             });
             return Err(detail.into());
@@ -598,7 +795,7 @@ fn pump_until(mut predicate: impl FnMut() -> bool) -> Result<()> {
         std::thread::yield_now();
     }
 }
-fn capture(state: &mut State, area: RECT, path: &std::path::Path) -> Result<()> {
+pub(super) fn capture(state: &mut State, area: RECT, path: &std::path::Path) -> Result<()> {
     unsafe {
         let screen = GetDC(Some(state.hwnd));
         let dc = CreateCompatibleDC(Some(screen));
@@ -610,7 +807,7 @@ fn capture(state: &mut State, area: RECT, path: &std::path::Path) -> Result<()> 
         std::fs::write(
             path.with_extension("json"),
             serde_json::to_vec_pretty(&serde_json::json!({
-                "project_id":state.project.as_ref().map(|p|p.id),"view":state.view,"view_name":VIEWS[state.view],
+                "backend":if state.store.is_postgres(){"PostgreSQL"}else{"SQLite"}, "timeline_origin":state.timeline.origin,"timeline_name_width":state.timeline.name_width,"timeline_day_width":state.timeline.day_width,"timeline_lightning":state.timeline.lightning, "project_id":state.project.as_ref().map(|p|p.id),"view":state.view,"view_name":VIEWS[state.view],
                 "dpi":state.dpi,"client":[area.right,area.bottom],"body":[state.body.left,state.body.top,state.body.right,state.body.bottom],
                 "content":[state.content.0,state.content.1],"scroll":[state.x,state.y],"visible_hit_targets":state.hits.len(),
                 "project_items":state.project.as_ref().map_or(0,|p|p.tasks.len()),"paint_microseconds":paint_us,

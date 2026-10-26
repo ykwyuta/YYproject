@@ -1,4 +1,6 @@
 //! Shared transactional project model for native UI and MCP.
+mod storage;
+pub mod table;
 use chrono::{Datelike, Days, NaiveDate, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -7,6 +9,7 @@ use std::{
     path::Path,
     time::Duration,
 };
+pub use storage::{AuditRecord, DatabaseDump, Store};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -16,6 +19,12 @@ pub enum Error {
     Conflict,
     #[error(transparent)]
     Sql(#[from] rusqlite::Error),
+    #[error("PostgreSQL operation failed: {0}")]
+    Postgres(#[from] postgres::Error),
+    #[error(transparent)]
+    Tls(#[from] native_tls::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 }
@@ -69,6 +78,8 @@ pub enum MasterKind {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Master {
+    #[serde(default)]
+    pub parent: Option<i64>,
     pub id: i64,
     pub kind: MasterKind,
     pub name: String,
@@ -78,6 +89,8 @@ pub struct Master {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Task {
+    pub parent: Option<i64>,
+    pub milestone: bool,
     pub id: i64,
     pub title: String,
     pub description: String,
@@ -168,6 +181,8 @@ impl Default for Task {
     fn default() -> Self {
         Self {
             id: 0,
+            parent: None,
+            milestone: false,
             title: String::new(),
             description: String::new(),
             kind: Kind::Task,
@@ -206,6 +221,7 @@ impl Task {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TaskFilter {
+    pub columns: BTreeMap<String, String>,
     pub query: String,
     pub status: Option<Status>,
     pub kind: Option<Kind>,
@@ -220,7 +236,18 @@ pub struct TaskFilter {
     pub archived: bool,
 }
 impl TaskFilter {
-    pub fn matches(&self, t: &Task) -> bool {
+    pub fn validate(&self) -> Result<()> {
+        if self.query.len() > 4096
+            || self.columns.len() > table::COLUMNS.len()
+            || self.columns.iter().any(|(key, value)| {
+                !table::COLUMNS.iter().any(|c| c.key == key) || value.len() > 1024 * 1024
+            })
+        {
+            return Err(invalid("Invalid task filter column or search size"));
+        }
+        Ok(())
+    }
+    fn matches_base(&self, t: &Task, include_category: bool) -> bool {
         self.archived == t.archived
             && self.priority.is_none_or(|p| p == t.priority)
             && self.severity.is_none_or(|s| s == t.severity)
@@ -228,18 +255,20 @@ impl TaskFilter {
             && self.status.is_none_or(|s| s == t.status)
             && self.kind.is_none_or(|k| k == t.kind)
             && self.assignee.is_none_or(|id| t.assignee == Some(id))
-            && self.category.is_none_or(|id| t.category == Some(id))
+            && (!include_category || self.category.is_none_or(|id| t.category == Some(id)))
             && (!self.unassigned || t.assignee.is_none())
             && (!self.incomplete || !matches!(t.status, Status::Done | Status::Cancelled))
             && self.overdue_before.is_none_or(|day| {
                 !matches!(t.status, Status::Done | Status::Cancelled)
                     && t.due.is_some_and(|due| due < day)
             })
+    }
+    pub fn matches(&self, t: &Task) -> bool {
+        self.matches_base(t, true)
             && (self.query.is_empty()
-                || t.title.to_lowercase().contains(&self.query.to_lowercase())
-                || t.description
-                    .to_lowercase()
-                    .contains(&self.query.to_lowercase()))
+                || [&t.title, &t.description, &t.review_note]
+                    .iter()
+                    .any(|s| s.to_lowercase().contains(&self.query.to_lowercase())))
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -281,6 +310,13 @@ pub enum Change {
     },
     SaveTask {
         task: Task,
+    },
+    SaveTasks {
+        tasks: Vec<Task>,
+    },
+    MoveTask {
+        id: i64,
+        before: Option<i64>,
     },
     RemoveTask {
         id: i64,
@@ -349,6 +385,155 @@ fn name(value: &str) -> Result<()> {
     }
 }
 impl Project {
+    pub fn matches_filter(&self, filter: &TaskFilter, task: &Task) -> bool {
+        if !filter.matches_base(task, false) {
+            return false;
+        }
+        if let Some(category) = filter.category {
+            let mut next = task.category;
+            let mut found = false;
+            for _ in 0..3 {
+                if next == Some(category) {
+                    found = true;
+                    break;
+                }
+                next = self
+                    .masters
+                    .iter()
+                    .find(|m| Some(m.id) == next)
+                    .and_then(|m| m.parent);
+            }
+            if !found {
+                return false;
+            }
+        }
+        if !filter
+            .columns
+            .iter()
+            .all(|(key, v)| table::value(self, task, key) == *v)
+        {
+            return false;
+        }
+        if filter.query.is_empty() {
+            return true;
+        }
+        let needle = filter.query.to_lowercase();
+        [&task.title, &task.description, &task.review_note]
+            .iter()
+            .any(|s| s.to_lowercase().contains(&needle))
+            || [
+                task.status.label(),
+                task.priority.label(),
+                task.severity.label(),
+                task.review.label(),
+            ]
+            .iter()
+            .any(|s| s.to_lowercase().contains(&needle))
+            || self
+                .category_path(task.category)
+                .join(" / ")
+                .to_lowercase()
+                .contains(&needle)
+            || self
+                .masters
+                .iter()
+                .filter(|m| Some(m.id) == task.assignee || Some(m.id) == task.reviewer)
+                .any(|m| m.name.to_lowercase().contains(&needle))
+            || [
+                task.id.to_string(),
+                task.start.map(|d| d.to_string()).unwrap_or_default(),
+                task.due.map(|d| d.to_string()).unwrap_or_default(),
+            ]
+            .iter()
+            .any(|s| s.contains(&needle))
+    }
+    fn save_task(&mut self, task: &Task) -> Result<()> {
+        let mut task = task.clone();
+        let previous = self.tasks.iter().find(|t| t.id == task.id);
+        if previous.is_some_and(|t| t.status == Status::Done)
+            && !matches!(task.status, Status::Done | Status::Cancelled)
+            && task.progress >= 100
+        {
+            return Err(invalid(
+                "Reopening a completed task requires progress below 100%",
+            ));
+        }
+        if task.status == Status::Done && previous.is_none_or(|t| t.status != Status::Done) {
+            let blocked: Vec<_> = self
+                .dependencies
+                .iter()
+                .filter(|d| d.successor == task.id)
+                .filter_map(|d| self.tasks.iter().find(|t| t.id == d.predecessor))
+                .filter(|t| !t.archived && t.status != Status::Done)
+                .map(|t| format!("#{} {}", t.id, t.title))
+                .collect();
+            if !blocked.is_empty() {
+                return Err(invalid(format!(
+                    "Complete predecessors first: {}",
+                    blocked.join(", ")
+                )));
+            }
+        }
+        if task.status == Status::Done {
+            task.progress = 100;
+        }
+        if task.id == 0 {
+            task.id = self.next_task_id;
+            self.next_task_id = next_id(std::iter::once(task.id))?;
+            self.tasks.push(task);
+        } else {
+            let old = self
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task.id)
+                .ok_or_else(|| invalid("Task does not exist"))?;
+            *old = task;
+        }
+        Ok(())
+    }
+    /// Stable sibling order, iterative traversal to support deep trees without stack overflow.
+    pub fn ordered_tasks(&self) -> Vec<(&Task, usize)> {
+        let mut children: BTreeMap<Option<i64>, Vec<&Task>> = BTreeMap::new();
+        for task in &self.tasks {
+            children.entry(task.parent).or_default().push(task);
+        }
+        let mut stack: Vec<_> = children
+            .get(&None)
+            .into_iter()
+            .flatten()
+            .rev()
+            .map(|t| (*t, 0))
+            .collect();
+        let mut result = Vec::with_capacity(self.tasks.len());
+        let mut seen = BTreeSet::new();
+        while let Some((t, depth)) = stack.pop() {
+            if !seen.insert(t.id) {
+                continue;
+            }
+            result.push((t, depth));
+            if let Some(items) = children.get(&Some(t.id)) {
+                stack.extend(items.iter().rev().map(|c| (*c, depth + 1)));
+            }
+        }
+        result
+    }
+    pub fn category_path(&self, id: Option<i64>) -> Vec<String> {
+        let mut path = Vec::new();
+        let mut next = id;
+        for _ in 0..3 {
+            let Some(m) = self
+                .masters
+                .iter()
+                .find(|m| Some(m.id) == next && m.kind == MasterKind::Category)
+            else {
+                break;
+            };
+            path.push(m.name.clone());
+            next = m.parent;
+        }
+        path.reverse();
+        path
+    }
     pub fn validate(&self) -> Result<()> {
         name(&self.name)?;
         if !(1..=9999).contains(&self.start.year()) || !(1..=9999).contains(&self.finish.year()) {
@@ -409,8 +594,60 @@ impl Project {
                 }
             }
         }
+        for master in &self.masters {
+            if master.kind != MasterKind::Category && master.parent.is_some() {
+                return Err(invalid("Only categories may have parents"));
+            }
+            let mut current = Some(master.id);
+            let mut seen = BTreeSet::new();
+            while let Some(id) = current {
+                if !seen.insert(id) || seen.len() > 3 {
+                    return Err(invalid(
+                        "Category hierarchy must be acyclic and at most three levels",
+                    ));
+                }
+                let m = self
+                    .masters
+                    .iter()
+                    .find(|m| m.id == id)
+                    .ok_or_else(|| invalid("Category parent does not exist"))?;
+                if master.kind == MasterKind::Category && m.kind != MasterKind::Category {
+                    return Err(invalid("Category parent has incompatible kind"));
+                }
+                current = m.parent;
+            }
+        }
+        for task in &self.tasks {
+            if task
+                .parent
+                .is_some_and(|id| id == task.id || !ids.contains(&id))
+            {
+                return Err(invalid("Invalid task parent"));
+            }
+            if task.milestone
+                && (task.start.is_none()
+                    || task.start != task.due
+                    || task.estimate != 0.0
+                    || task.duration_days != 0)
+            {
+                return Err(invalid(
+                    "Milestones require one date, zero duration and zero effort",
+                ));
+            }
+        }
+        if self.ordered_tasks().len() != self.tasks.len() {
+            return Err(invalid("Cyclic task hierarchy"));
+        }
         let task_kinds: BTreeMap<_, _> = self.tasks.iter().map(|t| (t.id, t.kind)).collect();
         for t in &self.tasks {
+            if t.parent
+                .is_some_and(|id| task_kinds.get(&id) != Some(&Kind::Task))
+            {
+                return Err(invalid("Parent must be a task"));
+            }
+            if t.milestone && t.kind != Kind::Task {
+                return Err(invalid("Milestones must be tasks"));
+            }
             if t.review != ReviewState::NotRequired && t.reviewer.is_none() {
                 return Err(invalid("Review requires a reviewer"));
             }
@@ -638,49 +875,71 @@ impl Project {
                 self.start = *start;
                 self.finish = *finish;
             }
-            Change::SaveTask { task } => {
-                let mut task = task.clone();
-                let previous = self.tasks.iter().find(|t| t.id == task.id);
-                if previous.is_some_and(|t| t.status == Status::Done)
-                    && !matches!(task.status, Status::Done | Status::Cancelled)
-                    && task.progress >= 100
-                {
-                    return Err(invalid(
-                        "Reopening a completed task requires progress below 100%",
-                    ));
+            Change::SaveTask { task } => self.save_task(task)?,
+            Change::SaveTasks { tasks } => {
+                if tasks.is_empty() || tasks.len() > 2000 {
+                    return Err(invalid("Batch requires 1..2000 tasks"));
                 }
-                if task.status == Status::Done && previous.is_none_or(|t| t.status != Status::Done)
-                {
-                    let blocked: Vec<_> = self
-                        .dependencies
-                        .iter()
-                        .filter(|d| d.successor == task.id)
-                        .filter_map(|d| self.tasks.iter().find(|t| t.id == d.predecessor))
-                        .filter(|t| !t.archived && t.status != Status::Done)
-                        .map(|t| format!("#{} {}", t.id, t.title))
-                        .collect();
-                    if !blocked.is_empty() {
-                        return Err(invalid(format!(
-                            "Complete predecessors first: {}",
-                            blocked.join(", ")
-                        )));
+                let mut ids = BTreeSet::new();
+                if tasks.iter().any(|t| t.id <= 0 || !ids.insert(t.id)) {
+                    return Err(invalid("Batch requires unique existing IDs"));
+                }
+                let order: BTreeMap<_, _> = self
+                    .topological()?
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, id)| (id, i))
+                    .collect();
+                let mut sorted: Vec<_> = tasks.iter().collect();
+                sorted.sort_by_key(|t| order.get(&t.id).copied().unwrap_or(usize::MAX));
+                for task in sorted {
+                    self.save_task(task)?;
+                }
+            }
+            Change::MoveTask { id, before } => {
+                if Some(*id) == *before {
+                    return Err(invalid("Cannot move a task before itself"));
+                }
+                let ordered = self.ordered_tasks();
+                let pos = ordered
+                    .iter()
+                    .position(|(t, _)| t.id == *id)
+                    .ok_or_else(|| invalid("Task does not exist"))?;
+                let depth = ordered[pos].1;
+                let members: BTreeSet<_> = std::iter::once(ordered[pos].0.id)
+                    .chain(
+                        ordered
+                            .iter()
+                            .skip(pos + 1)
+                            .take_while(|(_, d)| *d > depth)
+                            .map(|(t, _)| t.id),
+                    )
+                    .collect();
+                if before.is_some_and(|id| members.contains(&id)) {
+                    return Err(invalid("Cannot move a task into its descendants"));
+                }
+                let parent = match before {
+                    Some(id) => {
+                        self.tasks
+                            .iter()
+                            .find(|t| t.id == *id)
+                            .ok_or_else(|| invalid("Target task does not exist"))?
+                            .parent
                     }
-                }
-                if task.status == Status::Done {
-                    task.progress = 100;
-                }
-                if task.id == 0 {
-                    task.id = self.next_task_id;
-                    self.next_task_id = next_id(std::iter::once(task.id))?;
-                    self.tasks.push(task);
-                } else {
-                    let old = self
-                        .tasks
-                        .iter_mut()
-                        .find(|t| t.id == task.id)
-                        .ok_or_else(|| invalid("Task does not exist"))?;
-                    *old = task;
-                }
+                    None => None,
+                };
+                let mut moving: Vec<_> = self
+                    .tasks
+                    .iter()
+                    .filter(|t| members.contains(&t.id))
+                    .cloned()
+                    .collect();
+                moving.iter_mut().find(|t| t.id == *id).unwrap().parent = parent;
+                self.tasks.retain(|t| !members.contains(&t.id));
+                let target = before
+                    .and_then(|id| self.tasks.iter().position(|t| t.id == id))
+                    .unwrap_or(self.tasks.len());
+                self.tasks.splice(target..target, moving);
             }
             Change::RemoveTask { id } => {
                 self.removal_preview(*id)?;
@@ -828,11 +1087,11 @@ impl Calendar {
         Ok(base)
     }
 }
-pub struct Store {
+struct SqliteStore {
     connection: Connection,
     read_only: bool,
 }
-impl Store {
+impl SqliteStore {
     pub fn open(path: &Path, read_only: bool) -> Result<Self> {
         let flags = if read_only {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -853,8 +1112,8 @@ impl Store {
             if tables != 0 {
                 return Err(invalid("This SQLite file is not a yyproject database"));
             }
-            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=2; COMMIT;")?;
-        } else if application != 1499025482 || !matches!(version, 1 | 2) {
+            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=3; COMMIT;")?;
+        } else if application != 1499025482 || !matches!(version, 1..=3) {
             return Err(invalid("Unsupported yyproject database format"));
         }
         if !read_only {
@@ -941,7 +1200,7 @@ impl Store {
                 "{\"operation\":\"create\"}"
             ],
         )?;
-        tx.pragma_update(None, "user_version", 2)?;
+        tx.pragma_update(None, "user_version", 3)?;
         tx.commit()?;
         Ok(p)
     }
@@ -993,7 +1252,7 @@ impl Store {
                 serde_json::to_string(change)?
             ],
         )?;
-        tx.pragma_update(None, "user_version", 2)?;
+        tx.pragma_update(None, "user_version", 3)?;
         tx.commit()?;
         Ok(p)
     }

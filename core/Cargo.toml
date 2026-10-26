@@ -12,5 +12,10 @@ chrono.workspace = true
 thiserror.workspace = true
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 
+postgres = "0.19"
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+tempfile.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
