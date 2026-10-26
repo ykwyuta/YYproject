@@ -75,7 +75,7 @@ reviewerは担当者マスタ参照。レビューありなら確認者必須、
 
 RemoveTaskはarchived=trueにする保管。RestoreTaskはfalseへ戻す。項目と依存レコードを消さず、全体DAGとマスタ参照の検証も継続する。active_dependenciesは保管項目へ接続する関係を除外し、日程・描画・完了ゲートに利用する。マスタ削除は保管項目の参照も検査する。保管項目は文書サイズ/項目数上限に含む。removal_previewは読取専用で版・項目・依存・関連課題を返す。
 
-新規DBは形式3。形式1・2への書き込み成功時に、同じトランザクションでuser_versionを3へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。CSV出力の保管項目はフィルターで選ぶ。SQLiteへの書き出しは保管項目も監査も含める。
+新規DBは形式4。形式1・2・3への書き込み成功時に、同じトランザクションでuser_versionを4へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。CSV出力の保管項目はフィルターで選ぶ。SQLiteへの書き出しは保管項目も監査も含める。
 
 ## カンバンの入力と描画
 
@@ -99,8 +99,34 @@ Jira用CSVはcore/table.rsのexport_jira_csvを使う。Jira Cloudの既存の�
 
 ## PostgreSQL接続と移送の実装
 
-StoreはSQLiteとPostgreSQLを振り分ける。PostgreSQLは同期postgresクライアントとnative-tlsを使用し、OSの証明書ストアを利用する。接続文字列はYYPROJECT_DATABASE_URLで受け渡し、表示・監査に含めない。専用yyprojectスキーマのmetaにapplication_id・形式版3・変更通番を保持する。接続初期化はadvisory lock、更新はSELECT FOR UPDATEとexpected_revision、監査・変更通番は同じトランザクションで適用する。GUIは変更通番を読み、他接続からの更新を再読込する。接続・文・ロックのタイムアウトを設定する。read-onlyモードはクライアントと接続の双方で更新を拒否する。
+StoreはSQLiteとPostgreSQLを振り分ける。PostgreSQLは同期postgresクライアントとnative-tlsを使用し、OSの証明書ストアを利用する。接続文字列はYYPROJECT_DATABASE_URLで受け渡し、表示・監査に含めない。専用yyprojectスキーマのmetaにapplication_id・形式版4・変更通番を保持する。接続初期化はadvisory lock、更新はSELECT FOR UPDATEとexpected_revision、監査・変更通番は同じトランザクションで適用する。GUIは変更通番を読み、他接続からの更新を再読込する。接続・文・ロックのタイムアウトを設定する。read-onlyモードはクライアントと接続の双方で更新を拒否する。
 
 移送はDatabaseDumpを介し、SQLiteは読み取りトランザクション、PostgreSQLはREPEATABLE READの読み取り専用トランザクションでスナップショットを得る。プロジェクトと監査全件を検証し、空の移行先に1トランザクションで挿入する。ID・版・日時・履歴を保持し、PostgreSQLの採番シーケンスも更新する。既存データへの統合や上書きはしない。SQLiteへの出力は同じフォルダの一時DBへ構築・チェックポイント後、persist_noclobberで新規ファイルとして確定する。
 
 compose.yamlはPostgreSQL 17、ループバックの15432ポート、healthcheck、永続ボリュームを定義する。tools/with_postgres.pyはローカルの.envを読み、接続秘密を表示せず子プロセスへ渡す。.envは配布しない。tools/test_postgres.pyは空の専用DBを前提に実MCP、2接続の競合、読み取り専用、失敗時の原子性、100件超の監査、双方向移送を検証する。CIにはLinuxのPostgreSQLジョブを追加した。Windows GUIは別途 --ui-smoke-test NEW_DIRECTORY、PostgreSQL接続では --ui-smoke-postgres NEW_DIRECTORY を使用し、後者は空の専用DBが必要。
+
+## 一覧編集・寸法・日次描画の拡張
+
+native/grid.rsはMASTER_COLUMNSを含む共通セル選択・編集を扱い、master_grid.rsはマスタ描画と一括貼り付けを扱う。SaveMastersは既存の一意ID最大2000件を一括置換し、最終文書を検証して1トランザクションで保存する。MCPのproject_changeにも同じoperationを公開する。
+
+native/sizing.rsはDPI・現在のスクロール・動的な各列幅とIDごとの行高から境界を判定する。ドラッグ開始寸法を保持し、Esc・キャプチャ喪失・表示切替で復元、ボタン解放で確定する。寸法はDBへ書かない。native/bulk.rsは範囲選択とCtrlによる行ID集合を扱う。batch_task_attributesは選択IDだけへ属性を適用し、Project.changeの複製による事前検証と実保存の同じ業務条件を使う。保存はフォームを開いた時点の版で競合検出する。
+
+Task.completed_onは任意の実績完了日で、旧文書の省略値はNone。予定のdue、状態、進捗とは独立する。形式4で保存し、SQLiteは形式1〜4、PostgreSQLは形式3〜4を読み、正常な更新・移送時だけ形式4へ上げる。旧アプリは形式4への接続を拒否する。
+
+native/charts.rsは1日20論理px以上の横スクロール可能な格子を作り、7日ごとに日付を表示する。休日はProject.is_workday、線幅は3論理pxを使用。依存ネットワークの選択系統は先行・後続を方向別に探索した和集合とし、他の分岐を巻き込む無向連結成分にはしない。
+
+## Streamable HTTPとPAT
+
+http_server.rsはAxumの/mcpでPOSTのJSON応答、通知202、GET405、DELETE204を扱う。mcp::Sessionはstdioと共通の初期化・ツール処理を保持する。同期Storeはspawn_blocking上のMutexで操作し、PostgreSQLの同期ランタイムをTokioの非同期文脈で実行しない。初期化ごとにOS乱数256bitのID、合意したプロトコル版、ユーザー名、PATハッシュ、最終要求時刻を保持する。30分無操作で破棄し、最大256セッション、同時処理待ち64要求、本文2MiB、本文読取15秒を制限とする。JSON応答形式なのでSSE・再送イベントは公開しない。
+
+pat.rsはTOMLのusersを検証し、毎要求のBearer PATをSHA-256化して定数時間で比較する。設定不正は503で拒否する。セッションを名前とPATハッシュへ結び付け、別ユーザーや更新後PATからの流用を拒否する。HTTPの書き込みツールはactorを認証名へ固定し、ユーザーread_onlyとStore全体のread_onlyを併用する。PAT生成は256bit OS乱数、同一ユーザー更新、排他サイドカーロック、一時ファイルの同期と置換を行い、平文PATを設定へ保存しない。ホスト・Origin許可設定は起動時固定、ユーザー設定は毎要求再読込。PATはDBではなくサーバーの設定ファイルで管理する。
+
+tools/test_http.pyは実プロセス・一時設定・専用DBを使い、期限付きでエンドポイント起動を待ち、終了時にプロセスを回収する。PAT更新、なりすましactorの防止、読み取り専用、Origin/Host、HTTPヘッダー、セッション、同時更新の競合、2MiB上限を検証する。--postgresで既存の専用テストDBにも接続する。
+
+## 種類別マスタと同列コピー
+
+マスタの子タブはmaster_kindで排他的に切り替え、master_columns(kind)から必要な列だけを得る。grid_rows・描画・ヒット判定・編集・貼り付けを同じ種類とID列で処理し、プロジェクト全体のmasters添字を表示添字と混同しない。切替時は編集中の保存を検証してから選択・スクロールを解除する。
+
+BULK_TASK_KEYSをGUI一括フォーム・複数行貼り付け・クリア・fill_tasks_downの共通許可項目とする。個別セルの編集可能性と一括変更可能性を分離し、件名などは複数行の操作で拒否する。Ctrl+Dとメニューのfill-downは可視順の先頭選択行をコピー元とする。参照マスタは表示名ではなくIDでコピーし、同名担当者も取り違えない。1セルの貼り付けは同列の選択行へ展開する。SaveTasks／SaveMastersの最終検証・版競合・監査の原子性は維持する。
+
+チャートの日付軸は上から曜日・日・月・年とし、曜日は日次、日の数字は7日ごと、月・年は境界で区切る。休日背景は曜日・日の段まで描画し、月・年の表示を塗りつぶさない。

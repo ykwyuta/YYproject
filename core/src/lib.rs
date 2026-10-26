@@ -100,6 +100,7 @@ pub struct Task {
     pub category: Option<i64>,
     pub start: Option<NaiveDate>,
     pub due: Option<NaiveDate>,
+    pub completed_on: Option<NaiveDate>,
     pub duration_days: u32,
     pub estimate: f64,
     pub progress: u8,
@@ -191,6 +192,7 @@ impl Default for Task {
             category: None,
             start: None,
             due: None,
+            completed_on: None,
             duration_days: 0,
             estimate: 0.,
             progress: 0,
@@ -327,6 +329,9 @@ pub enum Change {
     SaveMaster {
         master: Master,
     },
+    SaveMasters {
+        masters: Vec<Master>,
+    },
     RemoveMaster {
         id: i64,
     },
@@ -443,6 +448,7 @@ impl Project {
                 task.id.to_string(),
                 task.start.map(|d| d.to_string()).unwrap_or_default(),
                 task.due.map(|d| d.to_string()).unwrap_or_default(),
+                task.completed_on.map(|d| d.to_string()).unwrap_or_default(),
             ]
             .iter()
             .any(|s| s.contains(&needle))
@@ -561,7 +567,7 @@ impl Project {
         let mut ids = BTreeSet::new();
         for t in &self.tasks {
             name(&t.title)?;
-            if [t.start, t.due]
+            if [t.start, t.due, t.completed_on]
                 .into_iter()
                 .flatten()
                 .any(|d| !(1..=9999).contains(&d.year()))
@@ -957,6 +963,23 @@ impl Project {
                     .ok_or_else(|| invalid("Archived task does not exist"))?;
                 task.archived = false;
             }
+            Change::SaveMasters { masters } => {
+                let mut ids = BTreeSet::new();
+                if masters.is_empty()
+                    || masters.len() > 2000
+                    || masters.iter().any(|m| m.id <= 0 || !ids.insert(m.id))
+                {
+                    return Err(invalid("Batch requires 1..2000 unique existing master IDs"));
+                }
+                for master in masters {
+                    let old = self
+                        .masters
+                        .iter_mut()
+                        .find(|m| m.id == master.id)
+                        .ok_or_else(|| invalid("Master does not exist"))?;
+                    *old = master.clone();
+                }
+            }
             Change::SaveMaster { master } => {
                 let mut master = master.clone();
                 if master.id == 0 {
@@ -1112,8 +1135,8 @@ impl SqliteStore {
             if tables != 0 {
                 return Err(invalid("This SQLite file is not a yyproject database"));
             }
-            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=3; COMMIT;")?;
-        } else if application != 1499025482 || !matches!(version, 1..=3) {
+            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=4; COMMIT;")?;
+        } else if application != 1499025482 || !matches!(version, 1..=4) {
             return Err(invalid("Unsupported yyproject database format"));
         }
         if !read_only {
@@ -1200,7 +1223,7 @@ impl SqliteStore {
                 "{\"operation\":\"create\"}"
             ],
         )?;
-        tx.pragma_update(None, "user_version", 3)?;
+        tx.pragma_update(None, "user_version", 4)?;
         tx.commit()?;
         Ok(p)
     }
@@ -1252,7 +1275,7 @@ impl SqliteStore {
                 serde_json::to_string(change)?
             ],
         )?;
-        tx.pragma_update(None, "user_version", 3)?;
+        tx.pragma_update(None, "user_version", 4)?;
         tx.commit()?;
         Ok(p)
     }

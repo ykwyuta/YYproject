@@ -8,3 +8,5 @@
 
 - 一覧のセル操作・範囲コピーは同じ固定コミットの `crates/yy-win/src/sheet/mod.rs`（yysheet）を参照しました。クリップボードは既存の `yy-ui-win::clipboard` 公開APIを使用します。
 - PostgreSQL接続は `postgres`、`postgres-native-tls`、`native-tls` とそれらの依存を使用します。[追加依存のライセンス通知](licenses/POSTGRES-DEPENDENCIES-NOTICES.txt)を同梱します。WindowsはSchannel、LinuxはシステムのOpenSSLを利用します。ComposeのPostgreSQLコンテナは実行環境として別途取得します。
+
+Streamable HTTP/PATで追加した依存のライセンスは [HTTP依存通知](licenses/HTTP-DEPENDENCIES-NOTICES.txt) に同梱します。

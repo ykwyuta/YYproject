@@ -5,3 +5,5 @@ __pycache__/
 
 .env
 .env.*.local
+yyproject-server.toml
+yyproject-server.toml.lock

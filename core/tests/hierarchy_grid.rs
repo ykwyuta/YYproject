@@ -4,6 +4,182 @@ fn day() -> NaiveDate {
     "2026-10-27".parse().unwrap()
 }
 #[test]
+fn master_columns_are_exclusive_and_fill_down_preserves_individual_task_fields() {
+    let keys = |kind| {
+        table::master_columns(kind)
+            .iter()
+            .map(|c| c.key)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(keys(MasterKind::Category), ["id", "name", "parent"]);
+    assert_eq!(keys(MasterKind::Assignee), ["id", "name"]);
+    assert_eq!(keys(MasterKind::Holiday), ["id", "name", "date"]);
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(&dir.path().join("fill.db"), false).unwrap();
+    let mut p = project(&mut s);
+    for title in ["先頭", "対象外", "コピー先"] {
+        p = add(&mut s, &p, title, None);
+    }
+    for _ in 0..2 {
+        p = apply(
+            &mut s,
+            &p,
+            Change::SaveMaster {
+                master: Master {
+                    id: 0,
+                    name: "同名担当者".into(),
+                    kind: MasterKind::Assignee,
+                    date: None,
+                    parent: None,
+                },
+            },
+        );
+    }
+    let mut task = p.tasks[0].clone();
+    task.assignee = Some(2);
+    task.completed_on = Some(day());
+    p = apply(&mut s, &p, Change::SaveTask { task });
+    let change =
+        table::fill_tasks_down(&p, &[1, 3], &["assignee".into(), "completed_on".into()]).unwrap();
+    let before = p.clone();
+    p = apply(&mut s, &p, change);
+    assert_eq!(p.tasks[2].assignee, Some(2));
+    assert_eq!(p.tasks[2].completed_on, Some(day()));
+    assert_eq!(p.tasks[2].title, "コピー先");
+    assert_eq!(
+        serde_json::to_value(&p.tasks[0]).unwrap(),
+        serde_json::to_value(&before.tasks[0]).unwrap()
+    );
+    assert!(p.tasks[1].assignee.is_none());
+    assert!(table::fill_tasks_down(&p, &[1, 3], &["title".into()]).is_err());
+    assert!(
+        table::batch_task_attributes(&p, &[1, 3], &[("title".into(), "同じ件名".into())]).is_err()
+    );
+    assert!(table::fill_tasks_down(&p, &[1], &["assignee".into()]).is_err());
+}
+#[test]
+fn selected_rows_update_attributes_and_actual_completion_date_atomically() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(&dir.path().join("batch.db"), false).unwrap();
+    let mut p = project(&mut s);
+    for name in ["A", "B", "C"] {
+        p = add(&mut s, &p, name, None);
+    }
+    p = apply(
+        &mut s,
+        &p,
+        Change::SaveMaster {
+            master: Master {
+                id: 0,
+                kind: MasterKind::Assignee,
+                name: "担当者".into(),
+                date: None,
+                parent: None,
+            },
+        },
+    );
+    let change = table::batch_task_attributes(
+        &p,
+        &[1, 3],
+        &[
+            ("assignee".into(), "1".into()),
+            ("completed_on".into(), "2026-10-27".into()),
+        ],
+    )
+    .unwrap();
+    let revision = p.revision;
+    p = apply(&mut s, &p, change);
+    assert_eq!(p.revision, revision + 1);
+    for t in &p.tasks {
+        assert_eq!(t.assignee, if t.id == 2 { None } else { Some(1) });
+        assert_eq!(t.completed_on, if t.id == 2 { None } else { Some(day()) });
+        assert_eq!(t.status, Status::Todo);
+    }
+    let before = serde_json::to_value(s.snapshot().unwrap()).unwrap();
+    assert!(
+        table::batch_task_attributes(&p, &[1, 3], &[("assignee".into(), "999".into())]).is_err()
+    );
+    assert!(
+        table::batch_task_attributes(&p, &[1, 3], &[("completed_on".into(), "2026-02-30".into())])
+            .is_err()
+    );
+    assert!(table::batch_task_attributes(&p, &[1, 1], &[("assignee".into(), "1".into())]).is_err());
+    assert!(table::batch_task_attributes(&p, &[1, 3], &[]).is_err());
+    assert_eq!(serde_json::to_value(s.snapshot().unwrap()).unwrap(), before);
+    let out = dir.path().join("round-trip.db");
+    s.export_sqlite(&out).unwrap();
+    assert_eq!(
+        Store::open(&out, true).unwrap().get(p.id).unwrap().tasks[0].completed_on,
+        Some(day())
+    );
+    let sql = rusqlite::Connection::open(&out).unwrap();
+    assert_eq!(
+        sql.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        4
+    );
+}
+#[test]
+fn master_grid_batch_keeps_conflicts_audits_and_validation_atomic() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(&dir.path().join("masters.db"), false).unwrap();
+    let mut p = project(&mut s);
+    for name in ["親", "子"] {
+        p = apply(
+            &mut s,
+            &p,
+            Change::SaveMaster {
+                master: Master {
+                    id: 0,
+                    kind: MasterKind::Category,
+                    name: name.into(),
+                    date: None,
+                    parent: None,
+                },
+            },
+        );
+    }
+    let mut masters = p.masters.clone();
+    table::set_master_value(&mut masters[0], "name", "親,引用\"日本語").unwrap();
+    table::set_master_value(&mut masters[1], "parent", "1").unwrap();
+    let old_revision = p.revision;
+    let audits = s.snapshot().unwrap().audit.len();
+    p = apply(
+        &mut s,
+        &p,
+        Change::SaveMasters {
+            masters: masters.clone(),
+        },
+    );
+    assert_eq!(p.revision, old_revision + 1);
+    assert_eq!(s.snapshot().unwrap().audit.len(), audits + 1);
+    assert_eq!(p.category_path(Some(2)), ["親,引用\"日本語", "子"]);
+    assert!(
+        s.apply(
+            p.id,
+            old_revision,
+            &Change::SaveMasters {
+                masters: masters.clone()
+            },
+            "stale"
+        )
+        .is_err()
+    );
+    let before = serde_json::to_value(s.snapshot().unwrap()).unwrap();
+    masters[0].parent = Some(2);
+    assert!(
+        s.apply(p.id, p.revision, &Change::SaveMasters { masters }, "test")
+            .is_err()
+    );
+    assert_eq!(serde_json::to_value(s.snapshot().unwrap()).unwrap(), before);
+    let mut holiday = p.masters[0].clone();
+    table::set_master_value(&mut holiday, "kind", "休日").unwrap();
+    table::set_master_value(&mut holiday, "date", "2026-10-27").unwrap();
+    assert_eq!(table::master_value(&holiday, "date"), "2026-10-27");
+    assert!(table::set_master_value(&mut holiday, "id", "999").is_err());
+    assert!(table::set_master_value(&mut holiday, "date", "2026-02-30").is_err());
+}
+#[test]
 fn jira_export_preserves_filtered_ancestors_types_and_quoted_fields() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(&dir.path().join("jira.db"), false).unwrap();

@@ -98,6 +98,10 @@ fn tools() -> Value {
                 json!({"type":"boolean","default":false});
             variants[3]["properties"]["master"]["properties"]["parent"] =
                 json!({"type":["integer","null"],"minimum":1});
+            variants[0]["properties"]["task"]["properties"]["completed_on"] =
+                json!({"type":["string","null"],"format":"date"});
+            let master = variants[3]["properties"]["master"].clone();
+            variants.push(schema(json!({"operation":{"const":"save_masters"},"masters":{"type":"array","items":master,"minItems":1,"maxItems":2000}}),&["operation","masters"]));
             let mut task = variants[0]["properties"]["task"].clone();
             task["required"] = json!(["id", "title"]);
             variants.push(schema(json!({"operation":{"const":"save_tasks"},"tasks":{"type":"array","items":task,"minItems":1,"maxItems":2000}}),&["operation","tasks"]));
@@ -255,9 +259,96 @@ fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std
         _ => return Err("Unknown tool".into()),
     })
 }
+#[derive(Default)]
+pub(crate) struct Session {
+    initialized: bool,
+    ready: bool,
+}
+impl Session {
+    pub(crate) fn handle(&mut self, store: &mut Store, request: Value) -> Option<Value> {
+        match request {
+            request
+                if !request.is_object()
+                    || request["jsonrpc"] != "2.0"
+                    || !request["method"].is_string()
+                    || request.get("id").is_some_and(|id| {
+                        !(id.is_null() || id.is_string() || id.is_i64() || id.is_u64())
+                    }) =>
+            {
+                Some(
+                    json!({"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid JSON-RPC request"}}),
+                )
+            }
+            request => {
+                let id = request.get("id").cloned();
+                let method = request["method"].as_str().unwrap_or("");
+                if id.is_none() {
+                    if method == "notifications/initialized" && self.initialized {
+                        self.ready = true;
+                    }
+                    None
+                } else {
+                    let result = match method {
+                        "initialize"
+                            if !request["params"]["protocolVersion"].is_string()
+                                || !request["params"]["capabilities"].is_object()
+                                || !request["params"]["clientInfo"]["name"].is_string()
+                                || !request["params"]["clientInfo"]["version"].is_string() =>
+                        {
+                            Err((-32602, "Invalid initialization parameters"))
+                        }
+                        "initialize" if !self.initialized => {
+                            self.initialized = true;
+                            let requested =
+                                request["params"]["protocolVersion"].as_str().unwrap_or("");
+                            let version =
+                                if ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
+                                    .contains(&requested)
+                                {
+                                    requested
+                                } else {
+                                    "2025-11-25"
+                                };
+                            Ok(
+                                json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"yyproject","version":env!("CARGO_PKG_VERSION")},"instructions":"Use project_list/get before changing a project. Changes require its expected_revision. Database path and read-only mode are fixed by the person launching this server."}),
+                            )
+                        }
+                        "ping" => Ok(json!({})),
+                        _ if !self.ready => Err((
+                            -32000,
+                            "Complete initialize and notifications/initialized first",
+                        )),
+                        "tools/list" => Ok(tools()),
+                        "tools/call" => {
+                            let params = &request["params"];
+                            match call(
+                                store,
+                                params["name"].as_str().unwrap_or(""),
+                                params.get("arguments").cloned().unwrap_or(json!({})),
+                            ) {
+                                Ok(data) => Ok(
+                                    json!({"content":[{"type":"text","text":data.to_string()}],"structuredContent":data,"isError":false}),
+                                ),
+                                Err(error) => Ok(
+                                    json!({"content":[{"type":"text","text":error.to_string()}],"isError":true}),
+                                ),
+                            }
+                        }
+                        _ => Err((-32601, "Method not found")),
+                    };
+                    Some(match result {
+                        Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
+                        Err((code, message)) => {
+                            json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
+                        }
+                    })
+                }
+            }
+        }
+    }
+}
 pub fn serve(store: &mut Store, mut input: impl BufRead, mut output: impl Write) -> io::Result<()> {
-    let mut initialized = false;
-    let mut ready = false;
+    let mut session = Session::default();
     loop {
         let mut line = vec![];
         let count = input
@@ -284,85 +375,10 @@ pub fn serve(store: &mut Store, mut input: impl BufRead, mut output: impl Write)
             )
         } else {
             match serde_json::from_slice::<Value>(&line) {
+                Ok(request) => session.handle(store, request),
                 Err(_) => Some(
                     json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Invalid JSON"}}),
                 ),
-                Ok(request)
-                    if !request.is_object()
-                        || request["jsonrpc"] != "2.0"
-                        || !request["method"].is_string()
-                        || request.get("id").is_some_and(|id| {
-                            !(id.is_null() || id.is_string() || id.is_i64() || id.is_u64())
-                        }) =>
-                {
-                    Some(
-                        json!({"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid JSON-RPC request"}}),
-                    )
-                }
-                Ok(request) => {
-                    let id = request.get("id").cloned();
-                    let method = request["method"].as_str().unwrap_or("");
-                    if id.is_none() {
-                        if method == "notifications/initialized" && initialized {
-                            ready = true;
-                        }
-                        None
-                    } else {
-                        let result = match method {
-                            "initialize"
-                                if !request["params"]["protocolVersion"].is_string()
-                                    || !request["params"]["capabilities"].is_object()
-                                    || !request["params"]["clientInfo"]["name"].is_string()
-                                    || !request["params"]["clientInfo"]["version"].is_string() =>
-                            {
-                                Err((-32602, "Invalid initialization parameters"))
-                            }
-                            "initialize" if !initialized => {
-                                initialized = true;
-                                let requested =
-                                    request["params"]["protocolVersion"].as_str().unwrap_or("");
-                                let version = if ["2025-11-25", "2025-06-18", "2024-11-05"]
-                                    .contains(&requested)
-                                {
-                                    requested
-                                } else {
-                                    "2025-11-25"
-                                };
-                                Ok(
-                                    json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"yyproject","version":env!("CARGO_PKG_VERSION")},"instructions":"Use project_list/get before changing a project. Changes require its expected_revision. Database path and read-only mode are fixed by the person launching this server."}),
-                                )
-                            }
-                            "ping" => Ok(json!({})),
-                            _ if !ready => Err((
-                                -32000,
-                                "Complete initialize and notifications/initialized first",
-                            )),
-                            "tools/list" => Ok(tools()),
-                            "tools/call" => {
-                                let params = &request["params"];
-                                match call(
-                                    store,
-                                    params["name"].as_str().unwrap_or(""),
-                                    params.get("arguments").cloned().unwrap_or(json!({})),
-                                ) {
-                                    Ok(data) => Ok(
-                                        json!({"content":[{"type":"text","text":data.to_string()}],"structuredContent":data,"isError":false}),
-                                    ),
-                                    Err(error) => Ok(
-                                        json!({"content":[{"type":"text","text":error.to_string()}],"isError":true}),
-                                    ),
-                                }
-                            }
-                            _ => Err((-32601, "Method not found")),
-                        };
-                        Some(match result {
-                            Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
-                            Err((code, message)) => {
-                                json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
-                            }
-                        })
-                    }
-                }
             }
         };
         if let Some(response) = response {

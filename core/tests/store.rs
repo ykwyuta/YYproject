@@ -715,6 +715,7 @@ fn legacy_documents_keep_effort_defaults_and_only_successful_writes_upgrade_form
         "include_in_effort",
         "related_tasks",
         "archived",
+        "completed_on",
     ] {
         document["tasks"][0].as_object_mut().unwrap().remove(key);
     }
@@ -730,6 +731,7 @@ fn legacy_documents_keep_effort_defaults_and_only_successful_writes_upgrade_form
     let legacy = readonly.get(p.id).unwrap();
     assert!(legacy.tasks[0].include_in_effort);
     assert!(!legacy.tasks[0].archived);
+    assert_eq!(legacy.tasks[0].completed_on, None);
     assert_eq!(legacy.tasks[0].priority, Priority::Normal);
     assert_eq!(legacy.snapshot(date("2026-10-26")).scope, 8.);
     drop(readonly);
@@ -751,7 +753,7 @@ fn legacy_documents_keep_effort_defaults_and_only_successful_writes_upgrade_form
     assert_eq!(
         sql.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert!(store.get(p.id).unwrap().tasks[0].archived);
 }

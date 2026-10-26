@@ -26,7 +26,11 @@ thread_local! {static SMOKE_CONTEXT_MENU:std::cell::Cell<bool>=const{std::cell::
 const AUTO_FORM: u32 = WM_APP + 17;
 const DRAG_TIMER: usize = 2;
 const GRID_FINISH: u32 = WM_APP + 50;
+mod bulk;
+mod charts;
 mod grid;
+mod master_grid;
+mod sizing;
 mod timeline;
 use grid::GridState;
 use timeline::Timeline;
@@ -58,11 +62,37 @@ const VIEWS: [&str; 8] = [
     "バーンアップ",
     "マスタ",
 ];
+fn network_family(p: &Project, selected: Option<i64>) -> std::collections::BTreeSet<i64> {
+    let Some(id) = selected else {
+        return Default::default();
+    };
+    let mut incoming: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    let mut outgoing: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    for d in p.active_dependencies() {
+        incoming.entry(d.successor).or_default().push(d.predecessor);
+        outgoing.entry(d.predecessor).or_default().push(d.successor);
+    }
+    let mut family = std::collections::BTreeSet::from([id]);
+    for edges in [&incoming, &outgoing] {
+        let mut seen = std::collections::BTreeSet::from([id]);
+        let mut pending = vec![id];
+        while let Some(current) = pending.pop() {
+            for &to in edges.get(&current).into_iter().flatten() {
+                if seen.insert(to) {
+                    pending.push(to);
+                    family.insert(to);
+                }
+            }
+        }
+    }
+    family
+}
 thread_local! {static APP:RefCell<Option<State>>=const{RefCell::new(None)};}
 struct State {
     hwnd: HWND,
     selector: HWND,
     tabs: HWND,
+    master_tabs: HWND,
     font: HFONT,
     dpi: i32,
     network: BTreeMap<i64, (usize, usize)>,
@@ -81,6 +111,7 @@ struct State {
     drag: Option<CardDrag>,
     grid: GridState,
     timeline: Timeline,
+    resize: Option<sizing::Resize>,
     version: i64,
     status: String,
     body: RECT,
@@ -168,6 +199,16 @@ fn outline(dc: HDC, r: RECT, c: COLORREF) {
     line(dc, (r.right - 1, r.top), (r.right - 1, r.bottom - 1), c);
     line(dc, (r.right - 1, r.bottom - 1), (r.left, r.bottom - 1), c);
     line(dc, (r.left, r.bottom - 1), (r.left, r.top), c);
+}
+fn stroke(dc: HDC, a: (i32, i32), b: (i32, i32), c: COLORREF, width: i32) {
+    unsafe {
+        let pen = CreatePen(PS_SOLID, width.max(1), c);
+        let old = SelectObject(dc, pen.into());
+        let _ = MoveToEx(dc, a.0, a.1, None);
+        let _ = LineTo(dc, b.0, b.1);
+        SelectObject(dc, old);
+        let _ = DeleteObject(pen.into());
+    }
 }
 fn wrapped_label(dc: HDC, mut r: RECT, value: &str) {
     let mut title: Vec<_> = value.encode_utf16().collect();
@@ -575,7 +616,9 @@ fn form(
             )
             .ok()?;
             send(t, WM_SETFONT, font.0 as usize, 0);
-            let labels = if title.starts_with("Jira") {
+            let labels = if title.starts_with("選択行の属性") {
+                vec!["担当・分類", "状態・優先度", "予定日程", "完了日・進捗"]
+            } else if title.starts_with("Jira") {
                 vec!["出力条件", "課題タイプ", "出力列"]
             } else if title.starts_with("CSV") {
                 vec!["出力条件", "出力列1", "出力列2", "出力列3", "出力列4"]
@@ -590,7 +633,17 @@ fn form(
                     "階層・節目",
                 ]
             };
-            for (i, name) in labels.iter().take(pages + 1).enumerate() {
+            for i in 0..=pages {
+                let name = labels.get(i).map_or_else(
+                    || {
+                        if title.starts_with("CSV") {
+                            format!("出力列{i}")
+                        } else {
+                            format!("設定{}", i + 1)
+                        }
+                    },
+                    |s| (*s).to_string(),
+                );
                 let mut value: Vec<_> = name.encode_utf16().chain(Some(0)).collect();
                 let item = TCITEMW {
                     mask: TCIF_TEXT,
@@ -807,10 +860,18 @@ fn task_values(v: &[String]) -> std::result::Result<(), String> {
             return Err("確認待ち・差し戻しの項目は完了にできません".into());
         }
     }
+    if v.len() > 20 && !v[20].is_empty() {
+        date(&v[20])?;
+    }
     Ok(())
 }
 impl State {
     fn hit_task(&self, x: i32, y: i32) -> Option<i64> {
+        if matches!(self.view, 2 | 3 | 7) {
+            return self
+                .grid_cell(POINT { x, y })
+                .and_then(|(row, _)| self.grid_rows().get(row).map(|r| r.0));
+        }
         if !inside(self.body, x, y)
             || (self.view != 4
                 && y < self.body.top
@@ -860,24 +921,51 @@ impl State {
                 {
                     return self.column_filter_menu(client);
                 }
-                self.selected = self.hit_task(client.x, client.y);
+                let clicked = self.hit_task(client.x, client.y);
+                if matches!(self.view, 2 | 3)
+                    && clicked.is_some_and(|id| !self.selected_task_ids().contains(&id))
+                {
+                    self.select_grid_point(client, false);
+                    self.cancel_drag();
+                }
+                self.selected = clicked;
             }
             let Some(task) = self.task() else {
                 return Ok(());
             };
             let current = task.status;
-            let can_add_child = task.kind == Kind::Task && !task.archived;
+            let multi = matches!(self.view, 2 | 3) && self.selected_task_ids().len() > 1;
+            let can_add_child = task.kind == Kind::Task && !task.archived && !multi;
             invalidate(self.hwnd);
             let popup = CreatePopupMenu()?;
             // Destroy the owned menu even when population or command handling fails.
             let result = (|| -> Result<usize> {
-                AppendMenuW(popup, MF_STRING, 112, w!("項目を編集…\tEnter"))?;
+                AppendMenuW(
+                    popup,
+                    MF_STRING | if multi { MF_GRAYED } else { MF_ENABLED },
+                    112,
+                    w!("項目を編集（1行）…\tEnter"),
+                )?;
                 AppendMenuW(
                     popup,
                     MF_STRING | if can_add_child { MF_ENABLED } else { MF_GRAYED },
                     121,
                     w!("子タスクを追加…"),
                 )?;
+                if matches!(self.view, 2 | 3) {
+                    AppendMenuW(popup, MF_STRING, 122, w!("選択行の属性を一括変更…"))?;
+                    AppendMenuW(
+                        popup,
+                        MF_STRING
+                            | if self.can_fill_down() {
+                                MF_ENABLED
+                            } else {
+                                MF_GRAYED
+                            },
+                        123,
+                        w!("選択範囲を下方向にコピー\tCtrl+D"),
+                    )?;
+                }
                 AppendMenuW(popup, MF_SEPARATOR, 0, PCWSTR::null())?;
                 for (index, status) in Status::ALL.iter().enumerate() {
                     AppendMenuW(
@@ -913,8 +1001,8 @@ impl State {
         Ok(())
     }
     fn cancel_drag(&mut self) {
-        let repaint = self.drag.take().is_some() || self.grid.selecting || self.timeline.resizing;
-        self.timeline.resizing = false;
+        self.finish_resize(false);
+        let repaint = self.drag.take().is_some() || self.grid.selecting;
         self.grid.selecting = false;
         unsafe {
             let _ = KillTimer(Some(self.hwnd), DRAG_TIMER);
@@ -1047,6 +1135,9 @@ impl State {
         self.project = Some(self.store.get(id)?);
         self.filter = TaskFilter::default();
         self.selected = None;
+        self.grid.selection = false;
+        self.grid.selected_rows.clear();
+        self.grid.row_selection = false;
         self.x = 0;
         self.y = 0;
         self.reload()?;
@@ -1641,6 +1732,11 @@ impl State {
         ]);
         fields[10].multi = true;
         fields[15].multi = true;
+        fields.push(field(
+            "完了日（実績・状態は変更しない）",
+            t.completed_on.map(|d| d.to_string()).unwrap_or_default(),
+            6,
+        ));
         if let Some(v) = form(
             self.hwnd,
             if new {
@@ -1683,6 +1779,11 @@ impl State {
             t.related_tasks = related_ids(&v[17])?;
             t.parent = v[18].parse().ok();
             t.milestone = v[19] == "yes";
+            t.completed_on = if v[20].is_empty() {
+                None
+            } else {
+                Some(date(&v[20])?)
+            };
             if t.milestone {
                 let day = t
                     .start
@@ -1920,6 +2021,8 @@ impl State {
             102 => self.project_form(true)?,
             103 => self.project_form(false)?,
             104 => self.export_csv_form()?,
+            122 => self.bulk_edit_form()?,
+            123 => self.grid_fill_down()?,
             109 => self.export_jira_form()?,
             105 => {
                 let url = std::env::var("YYPROJECT_DATABASE_URL")
@@ -1964,6 +2067,8 @@ impl State {
             112 => {
                 if self.view == 7 {
                     self.master(false)?;
+                } else if matches!(self.view, 2 | 3) && self.selected_task_ids().len() > 1 {
+                    self.bulk_edit_form()?;
                 } else {
                     self.edit_task(false, false)?;
                 }
@@ -1997,16 +2102,21 @@ impl State {
             })?,
             118 => self.reload()?,
             130..=132 => {
-                self.master_kind = match id {
+                let kind = match id {
                     130 => MasterKind::Category,
                     131 => MasterKind::Assignee,
                     _ => MasterKind::Holiday,
                 };
                 self.view = 7;
-                self.selected = None;
+                self.select_master_kind(kind);
                 send(self.tabs, TCM_SETCURSEL, 7, 0);
                 self.master(true)?;
             }
+            230..=232 => self.select_master_kind(match id {
+                230 => MasterKind::Category,
+                231 => MasterKind::Assignee,
+                _ => MasterKind::Holiday,
+            }),
             140 => {
                 yy_ui_win::help::show(
                     include_str!("../../help/help.md"),
@@ -2019,6 +2129,10 @@ impl State {
                 self.view = id - 200;
                 self.grid.all_kinds = false;
                 self.grid.selection = false;
+                self.grid.anchor = (0, 0);
+                self.grid.current = (0, 0);
+                self.grid.selected_rows.clear();
+                self.grid.row_selection = false;
                 self.x = 0;
                 self.y = 0;
                 self.selected = None;
@@ -2091,17 +2205,25 @@ impl State {
             let rows = send(self.tabs, TCM_GETROWCOUNT, 0, 0).0.max(1) as i32;
             let tab_h = rows * self.px(28) + self.px(5);
             let _ = MoveWindow(self.tabs, 0, top, r.right.max(1), tab_h, true);
-            self.body = rect(
+            let master_h = if self.view == 7 { self.px(34) } else { 0 };
+            let _ = ShowWindow(
+                self.master_tabs,
+                if self.view == 7 { SW_SHOW } else { SW_HIDE },
+            );
+            let _ = MoveWindow(
+                self.master_tabs,
                 0,
                 top + tab_h,
-                r.right,
-                (r.bottom - top - tab_h - self.px(28)).max(0),
+                r.right.max(1),
+                master_h.max(1),
+                true,
             );
-            let n = self
-                .project
-                .as_ref()
-                .map_or(0, |p| p.tasks.iter().filter(|t| !t.archived).count())
-                as i32;
+            self.body = rect(
+                0,
+                top + tab_h + master_h,
+                r.right,
+                (r.bottom - top - tab_h - master_h - self.px(28)).max(0),
+            );
             self.content = match self.view {
                 0 => (
                     self.px(1200),
@@ -2131,26 +2253,23 @@ impl State {
                             }) as i32
                                 * self.px(self.timeline.day_width)
                     }),
-                    (n + 1) * self.px(30) + self.px(96),
-                ),
-                2 | 3 => (
-                    self.px(table::COLUMNS.iter().map(|c| c.width).sum()),
-                    (self.project.as_ref().map_or(0, |p| {
+                    self.project.as_ref().map_or(0, |p| {
                         p.tasks
                             .iter()
                             .filter(|t| p.matches_filter(&self.filter, t))
-                            .filter(|t| {
-                                self.grid.all_kinds
-                                    || if self.view == 3 {
-                                        t.kind == Kind::Issue
-                                    } else {
-                                        t.kind == Kind::Task
-                                    }
-                            })
-                            .count()
-                    }) as i32
-                        + 2)
-                        * self.px(30),
+                            .map(|t| self.px(self.timeline.height(t.id)))
+                            .sum::<i32>()
+                    }) + self.px(96),
+                ),
+                2 | 3 | 7 => (
+                    self.px((0..self.grid_columns().len())
+                        .map(|c| self.grid_width(c))
+                        .sum()),
+                    self.grid_rows()
+                        .iter()
+                        .map(|(id, _)| self.grid_height(*id))
+                        .sum::<i32>()
+                        + self.px(60),
                 ),
                 4 => (
                     (self.network.values().map(|v| v.0).max().unwrap_or(0) + 1) as i32
@@ -2158,9 +2277,11 @@ impl State {
                     (self.network.values().map(|v| v.1).max().unwrap_or(0) + 1) as i32
                         * self.px(100),
                 ),
-                7 => (
-                    self.px(800),
-                    self.project.as_ref().map_or(1, |p| p.masters.len() + 2) as i32 * self.px(30),
+                5 | 6 => (
+                    self.project
+                        .as_ref()
+                        .map_or(r.right, |p| charts::width(p, self.dpi).max(r.right)),
+                    self.body.bottom - self.body.top,
                 ),
                 _ => (r.right, self.body.bottom - self.body.top),
             };
@@ -2220,19 +2341,24 @@ impl State {
                     } else {
                         "通常"
                     },
-                    p.tasks
-                        .iter()
-                        .filter(|t| p.matches_filter(&self.filter, t)
-                            && (!matches!(self.view, 2 | 3)
-                                || self.grid.all_kinds
-                                || t.kind
-                                    == if self.view == 3 {
-                                        Kind::Issue
-                                    } else {
-                                        Kind::Task
-                                    }))
-                        .count(),
-                    p.tasks.len(),
+                    if self.view == 7 {
+                        p.masters
+                            .iter()
+                            .filter(|m| m.kind == self.master_kind)
+                            .count()
+                    } else if matches!(self.view, 2 | 3) {
+                        self.grid_rows().len()
+                    } else {
+                        p.tasks
+                            .iter()
+                            .filter(|t| p.matches_filter(&self.filter, t))
+                            .count()
+                    },
+                    if self.view == 7 {
+                        p.masters.len()
+                    } else {
+                        p.tasks.len()
+                    },
                     p.revision,
                     if self.store.is_postgres() {
                         "PostgreSQL".into()
@@ -2389,6 +2515,7 @@ impl State {
                 }
             }
             2 | 3 => {
+                let selected_rows = self.selected_task_ids();
                 for (i, (t, depth)) in p
                     .ordered_tasks()
                     .into_iter()
@@ -2404,15 +2531,16 @@ impl State {
                     })
                     .enumerate()
                 {
-                    let y = top + (i as i32 + 1) * row;
-                    if y + row < a.top + row || y > a.bottom {
+                    let y = self.grid_row_top(i);
+                    let row = self.grid_height(t.id);
+                    if y + row <= a.top + self.px(30) || y > a.bottom {
                         continue;
                     }
                     let rr = rect(x, y, self.content.0, row);
                     fill(
                         dc,
                         rr,
-                        if self.selected == Some(t.id) {
+                        if selected_rows.contains(&t.id) {
                             COLORREF(0xf8dfbb)
                         } else if i % 2 == 0 {
                             COLORREF(0xfafafa)
@@ -2422,9 +2550,19 @@ impl State {
                     );
                     let mut cx = x;
                     for (col, c) in table::COLUMNS.iter().enumerate() {
-                        let w = self.px(c.width);
+                        let w = self.px(self.grid_width(col));
                         if self.grid.contains(i, col) {
-                            fill(dc, rect(cx, y, w, row), COLORREF(0xffe5c7));
+                            fill(
+                                dc,
+                                rect(cx, y, w, row),
+                                if selected_rows.len() > 1
+                                    && !table::BULK_TASK_KEYS.contains(&c.key)
+                                {
+                                    COLORREF(0xe9e9e9)
+                                } else {
+                                    COLORREF(0xffe5c7)
+                                },
+                            );
                         }
                         let mut value = table::value(p, t, c.key);
                         if c.key == "title" {
@@ -2454,15 +2592,24 @@ impl State {
                 }
                 fill(dc, rect(a.left, a.top, a.right - a.left, row), grey);
                 let mut cx = x;
-                for c in table::COLUMNS {
-                    let w = self.px(c.width);
+                for (col, c) in table::COLUMNS.iter().enumerate() {
+                    let w = self.px(self.grid_width(col));
                     let filtered = self.filter.columns.contains_key(c.key);
                     label(
                         dc,
                         rect(cx + self.px(4), a.top, w - self.px(8), row),
                         &format!(
-                            "{}{}",
+                            "{}{}{}",
                             if c.key == "id" { "↕ ID" } else { c.label },
+                            if c.editable && !table::BULK_TASK_KEYS.contains(&c.key) {
+                                if c.key == "title" {
+                                    "（個別）"
+                                } else {
+                                    "※"
+                                }
+                            } else {
+                                ""
+                            },
                             if filtered { " ▼" } else { "" }
                         ),
                         if filtered { blue } else { black },
@@ -2491,6 +2638,12 @@ impl State {
             ),
             4 => {
                 let graph = &self.network;
+                let family = self
+                    .project
+                    .as_ref()
+                    .map(|p| network_family(p, self.selected))
+                    .unwrap_or_default();
+                let focused = self.selected.is_some_and(|id| graph.contains_key(&id));
                 let by_id: BTreeMap<_, _> = p.tasks.iter().map(|t| (t.id, t)).collect();
                 let gap_x = self.px(230);
                 let gap_y = self.px(100);
@@ -2503,9 +2656,12 @@ impl State {
                     let (tx, ty) = pos(d.successor);
                     let start = (sx + self.px(190), sy + self.px(35));
                     let end = (tx, ty + self.px(35));
-                    line(dc, start, end, blue);
-                    line(dc, end, (end.0 - 8, end.1 - 5), blue);
-                    line(dc, end, (end.0 - 8, end.1 + 5), blue);
+                    let active = !focused
+                        || (family.contains(&d.predecessor) && family.contains(&d.successor));
+                    let c = if active { blue } else { COLORREF(0xe5e5e5) };
+                    stroke(dc, start, end, c, if active { self.px(2) } else { 1 });
+                    line(dc, end, (end.0 - self.px(5), end.1 - self.px(4)), c);
+                    line(dc, end, (end.0 - self.px(5), end.1 + self.px(4)), c);
                 }
                 for &id in graph.keys() {
                     let (nx, ny) = pos(id);
@@ -2518,173 +2674,50 @@ impl State {
                         continue;
                     }
                     let t = by_id[&id];
-                    fill(dc, box_r, color(t.status));
+                    let active = !focused || family.contains(&id);
+                    let ink = if active { black } else { COLORREF(0xc0c0c0) };
+                    fill(
+                        dc,
+                        box_r,
+                        if active {
+                            color(t.status)
+                        } else {
+                            COLORREF(0xf6f6f6)
+                        },
+                    );
+                    if self.selected == Some(id) {
+                        outline(dc, box_r, blue);
+                    }
                     label(
                         dc,
                         rect(nx + 6, ny, box_r.right - nx - 12, row),
                         &format!("#{} {}", id, t.title),
-                        black,
+                        ink,
                     );
                     label(
                         dc,
                         rect(nx + 6, ny + row, box_r.right - nx - 12, row),
                         &format!("{} · {}%", t.status.label(), t.progress),
-                        black,
+                        ink,
                     );
                     self.hits.push((box_r, id));
                 }
             }
-            5 | 6 => {
-                let height = a.bottom - a.top;
-                let width = a.right - a.left;
-                let left = self.px(75).min(width / 4);
-                let right = self.px(35).min(width / 10);
-                let above = self.px(50).min(height / 3);
-                let below = self.px(60).min(height / 3);
-                let plot = rect(
-                    a.left + left,
-                    a.top + above,
-                    (width - left - right).max(1),
-                    (height - above - below).max(1),
-                );
-                let max = p
-                    .history
-                    .iter()
-                    .map(|s| s.scope.max(s.remaining))
-                    .fold(1.0, f64::max);
-                let first = p.history.first().map_or(p.start, |s| s.day);
-                let last = p.history.last().map_or(p.finish, |s| s.day);
-                let span = (last - first).num_days().max(1) as f64;
-                line(dc, (plot.left, plot.top), (plot.left, plot.bottom), black);
-                line(
-                    dc,
-                    (plot.left, plot.bottom),
-                    (plot.right, plot.bottom),
-                    black,
-                );
-                let ticks = ((plot.bottom - plot.top) / self.px(28)).clamp(1, 4);
-                for i in 0..=ticks {
-                    let y = plot.bottom - (plot.bottom - plot.top) * i / ticks;
-                    line(dc, (plot.left, y), (plot.right, y), COLORREF(0xe5e5e5));
-                    label(
-                        dc,
-                        rect(
-                            a.left,
-                            y - self.px(12),
-                            (plot.left - a.left - 4).max(1),
-                            self.px(24),
-                        ),
-                        &format!("{:.1}h", max * i as f64 / f64::from(ticks)),
-                        black,
-                    );
-                }
-                let point = |s: &Snapshot, value: f64| {
-                    (
-                        plot.left
-                            + ((s.day - first).num_days() as f64 / span
-                                * (plot.right - plot.left) as f64)
-                                as i32,
-                        plot.bottom - (value / max * (plot.bottom - plot.top) as f64) as i32,
-                    )
-                };
-                for (which, c) in if self.view == 5 {
-                    vec![(0, blue)]
-                } else {
-                    vec![(1, COLORREF(0x398a39)), (2, COLORREF(0x999999))]
-                } {
-                    let value = |s: &Snapshot| match which {
-                        0 => s.remaining,
-                        1 => s.completed,
-                        _ => s.scope,
-                    };
-                    for pair in p.history.windows(2) {
-                        line(
-                            dc,
-                            point(&pair[0], value(&pair[0])),
-                            point(&pair[1], value(&pair[1])),
-                            c,
-                        );
-                    }
-                    for s in &p.history {
-                        let (cx, cy) = point(s, value(s));
-                        fill(dc, rect(cx - 3, cy - 3, 6, 6), c);
-                    }
-                }
-                label(
-                    dc,
-                    rect(plot.left, a.top, plot.right - plot.left, row),
-                    if self.view == 5 {
-                        "残工数（青）"
-                    } else {
-                        "完了工数（緑） / 総工数（灰）"
-                    },
-                    black,
-                );
-                let label_width = self.px(120).min((plot.right - plot.left) / 2);
-                label(
-                    dc,
-                    rect(plot.left, plot.bottom + 4, label_width, row),
-                    &first.to_string(),
-                    black,
-                );
-                if last != first {
-                    label(
-                        dc,
-                        rect(plot.right - label_width, plot.bottom + 4, label_width, row),
-                        &last.to_string(),
-                        black,
-                    );
-                }
-                if p.history.len() < 2 {
-                    label(
-                        dc,
-                        rect(plot.left, plot.top, plot.right - plot.left, row),
-                        "実績は1日分です。日ごとの記録が増えると線で表示します。",
-                        black,
-                    );
-                }
-            }
+            5 | 6 => charts::paint(
+                dc,
+                p,
+                timeline::Viewport {
+                    dpi: self.dpi,
+                    body: a,
+                    x: self.x,
+                    y: self.y,
+                },
+                self.view == 6,
+            ),
             7 => {
-                for (i, m) in p.masters.iter().enumerate() {
-                    let y = top + (i as i32 + 1) * row;
-                    if y + row < a.top + row || y > a.bottom {
-                        continue;
-                    }
-                    let rr = rect(x, y, self.px(800), row);
-                    fill(
-                        dc,
-                        rr,
-                        if self.selected == Some(m.id) {
-                            COLORREF(0xf8dfbb)
-                        } else {
-                            grey
-                        },
-                    );
-                    label(
-                        dc,
-                        rect(x + 8, y, self.px(800) - 16, row),
-                        &format!(
-                            "#{}  {}  {}  {}",
-                            m.id,
-                            match m.kind {
-                                MasterKind::Category => "カテゴリ",
-                                MasterKind::Assignee => "担当者",
-                                MasterKind::Holiday => "休日",
-                            },
-                            m.name,
-                            m.date.map(|d| d.to_string()).unwrap_or_default()
-                        ),
-                        black,
-                    );
-                    self.hits.push((rr, m.id));
-                }
-                fill(dc, rect(a.left, a.top, a.right - a.left, row), grey);
-                label(
-                    dc,
-                    rect(a.left + 8, a.top, a.right - a.left - 16, row),
-                    "マスタ管理：編集メニューからカテゴリ・担当者・休日を追加できます。",
-                    black,
-                );
+                let mut hits = Vec::new();
+                self.paint_masters(dc, &mut hits);
+                self.hits.extend(hits);
             }
             _ => {}
         }
@@ -2820,6 +2853,8 @@ fn menu() -> windows::core::Result<HMENU> {
                     (121, "選択したタスクの子タスクを追加…".into()),
                     (111, "課題を追加".into()),
                     (112, "選択項目を編集".into()),
+                    (122, "選択行の属性を一括変更…".into()),
+                    (123, "選択範囲を下方向にコピー\tCtrl+D".into()),
                     (113, "選択項目を保管（マスタは削除）…".into()),
                     (119, "保管した項目を復元…".into()),
                     (114, "依存関係を追加".into()),
@@ -2962,11 +2997,25 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     }
                 }
                 WM_NOTIFY => (|| -> Result<()> {
-                    if (*(l.0 as *const NMHDR)).code == TCN_SELCHANGE {
+                    if (*(l.0 as *const NMHDR)).code == TCN_SELCHANGE
+                        && (*(l.0 as *const NMHDR)).hwndFrom == s.master_tabs
+                    {
+                        s.finish_cell_edit(true)?;
+                        let kind = match send(s.master_tabs, TCM_GETCURSEL, 0, 0).0 {
+                            0 => MasterKind::Category,
+                            1 => MasterKind::Assignee,
+                            _ => MasterKind::Holiday,
+                        };
+                        s.select_master_kind(kind);
+                    } else if (*(l.0 as *const NMHDR)).code == TCN_SELCHANGE {
                         s.finish_cell_edit(true)?;
                         s.cancel_drag();
                         s.grid.all_kinds = false;
                         s.grid.selection = false;
+                        s.grid.anchor = (0, 0);
+                        s.grid.current = (0, 0);
+                        s.grid.selected_rows.clear();
+                        s.grid.row_selection = false;
                         s.view = send(s.tabs, TCM_GETCURSEL, 0, 0).0.max(0) as usize;
                         s.selected = None;
                         s.x = 0;
@@ -3025,15 +3074,15 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     let x = l.0 as u16 as i16 as i32;
                     let y = (l.0 >> 16) as u16 as i16 as i32;
                     let _ = SetFocus(Some(h));
-                    if s.view == 1
-                        && (x - s.body.left - s.timeline.width(s.dpi, s.body)).abs() <= s.px(5)
-                    {
-                        s.timeline.resizing = true;
-                        let _ = SetCapture(h);
+                    if s.begin_resize(POINT { x, y }) {
+                        return Ok(());
+                    }
+                    if matches!(s.view, 2 | 3) && GetKeyState(VK_CONTROL.0 as i32) < 0 {
+                        s.toggle_grid_row(POINT { x, y });
                         return Ok(());
                     }
                     s.selected = s.hit_task(x, y);
-                    if matches!(s.view, 2 | 3) {
+                    if matches!(s.view, 2 | 3 | 7) {
                         s.select_grid_point(POINT { x, y }, GetKeyState(VK_SHIFT.0 as i32) < 0);
                     }
                     if (s.view == 0 || (matches!(s.view, 2 | 3) && s.grid.current.1 == 0))
@@ -3056,10 +3105,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     Ok(())
                 })(),
                 WM_LBUTTONUP => {
-                    if s.timeline.resizing {
-                        s.timeline.resizing = false;
-                        let _ = ReleaseCapture();
-                    }
+                    s.finish_resize(true);
                     let drag = s.drag;
                     s.grid.selecting = false;
                     s.cancel_drag();
@@ -3097,15 +3143,30 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         Ok(())
                     }
                 }
-                WM_MOUSEMOVE => {
-                    if s.timeline.resizing {
-                        s.timeline.name_width = ((l.0 as u16 as i16 as i32 - s.body.left) * 96
-                            / s.dpi)
-                            .clamp(160, 1600);
-                        s.layout();
-                        invalidate(h);
+                WM_SETCURSOR => {
+                    let mut point = POINT::default();
+                    let _ = GetCursorPos(&mut point);
+                    let _ = ScreenToClient(h, &mut point);
+                    if let Some(target) = s.resize_target(point) {
+                        let cursor = if matches!(target, sizing::Target::Row(_)) {
+                            IDC_SIZENS
+                        } else {
+                            IDC_SIZEWE
+                        };
+                        SetCursor(LoadCursorW(None, cursor).ok());
+                        Ok(())
+                    } else {
+                        return false;
                     }
-
+                }
+                WM_MOUSEMOVE => {
+                    if s.resize.is_some() {
+                        s.move_resize(POINT {
+                            x: l.0 as u16 as i16 as i32,
+                            y: (l.0 >> 16) as u16 as i16 as i32,
+                        });
+                        return true;
+                    }
                     if s.grid.selecting && s.drag.is_none() && w.0 & 1 != 0 {
                         s.select_grid_point(
                             POINT {
@@ -3133,7 +3194,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                 }
                 GRID_FINISH => s.finish_grid_message(w.0 == 1, l.0 != 0),
                 WM_LBUTTONDBLCLK => {
-                    if matches!(s.view, 2 | 3) {
+                    if matches!(s.view, 2 | 3 | 7) {
                         s.begin_cell_edit(None)
                     } else {
                         s.command(112)
@@ -3144,7 +3205,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     y: (l.0 >> 16) as u16 as i16 as i32,
                 }),
                 WM_CHAR
-                    if matches!(s.view, 2 | 3)
+                    if matches!(s.view, 2 | 3 | 7)
                         && w.0 >= 32
                         && GetKeyState(VK_CONTROL.0 as i32) >= 0 =>
                 {
@@ -3180,7 +3241,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     let old = s.font;
                     s.font = font;
                     s.dpi = GetDpiForWindow(h).max(96) as i32;
-                    for c in [s.selector, s.tabs] {
+                    for c in [s.selector, s.tabs, s.master_tabs] {
                         send(c, WM_SETFONT, font.0 as usize, 0);
                     }
                     let _ = DeleteObject(old.into());
@@ -3205,6 +3266,16 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                 message(h, &e.to_string());
                 s.focus_cell_edit();
                 send(s.tabs, TCM_SETCURSEL, s.view, 0);
+                send(
+                    s.master_tabs,
+                    TCM_SETCURSEL,
+                    match s.master_kind {
+                        MasterKind::Category => 0,
+                        MasterKind::Assignee => 1,
+                        MasterKind::Holiday => 2,
+                    },
+                    0,
+                );
                 invalidate(h);
             }
             true
@@ -3325,7 +3396,37 @@ pub fn run() -> Result<()> {
             Some(instance.into()),
             None,
         )?;
-        for c in [selector, tabs] {
+        let master_tabs = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            WC_TABCONTROLW,
+            w!(""),
+            WS_CHILD | WS_TABSTOP,
+            0,
+            0,
+            1,
+            1,
+            Some(hwnd),
+            None,
+            Some(instance.into()),
+            None,
+        )?;
+        for (i, title) in [
+            "カテゴリ（名前・親カテゴリ）",
+            "担当者（名前）",
+            "休日（名前・日付）",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let mut value: Vec<_> = title.encode_utf16().chain(Some(0)).collect();
+            let item = TCITEMW {
+                mask: TCIF_TEXT,
+                pszText: windows::core::PWSTR(value.as_mut_ptr()),
+                ..Default::default()
+            };
+            send(master_tabs, TCM_INSERTITEMW, i, &item as *const _ as isize);
+        }
+        for c in [selector, tabs, master_tabs] {
             send(c, WM_SETFONT, font.0 as usize, 0);
         }
         send(
@@ -3347,6 +3448,7 @@ pub fn run() -> Result<()> {
             hwnd,
             selector,
             tabs,
+            master_tabs,
             font,
             dpi: GetDpiForWindow(hwnd).max(96) as i32,
             network: BTreeMap::new(),
@@ -3365,6 +3467,7 @@ pub fn run() -> Result<()> {
             drag: None,
             grid: GridState::default(),
             timeline: Timeline::default(),
+            resize: None,
             version: 0,
             status: String::new(),
             body: RECT::default(),
@@ -3397,5 +3500,57 @@ pub fn run() -> Result<()> {
         });
         CoUninitialize();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    #[test]
+    fn network_focus_follows_ancestors_and_descendants_without_sibling_branches() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("graph.db"), false).unwrap();
+        let day = "2026-10-27".parse().unwrap();
+        let mut p = store.create("graph".into(), day, day, "test").unwrap();
+        for i in 1..=5 {
+            p = store
+                .apply(
+                    p.id,
+                    p.revision,
+                    &Change::SaveTask {
+                        task: Task {
+                            title: i.to_string(),
+                            ..Default::default()
+                        },
+                    },
+                    "test",
+                )
+                .unwrap();
+        }
+        for (from, to) in [(1, 2), (2, 3), (1, 4)] {
+            p = store
+                .apply(
+                    p.id,
+                    p.revision,
+                    &Change::AddDependency {
+                        dependency: Dependency {
+                            predecessor: from,
+                            successor: to,
+                            lag_days: 0,
+                        },
+                    },
+                    "test",
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            network_family(&p, Some(2)),
+            std::collections::BTreeSet::from([1, 2, 3])
+        );
+        assert!(network_family(&p, None).is_empty());
+        assert_eq!(
+            network_family(&p, Some(5)),
+            std::collections::BTreeSet::from([5])
+        );
     }
 }

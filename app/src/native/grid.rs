@@ -6,8 +6,14 @@ pub(super) struct GridState {
     pub current: (usize, usize),
     pub selecting: bool,
     pub selection: bool,
+    pub row_selection: bool,
+    pub selected_rows: std::collections::BTreeSet<i64>,
     pub all_kinds: bool,
     pub new_parent: Option<i64>,
+    pub widths: BTreeMap<usize, i32>,
+    pub master_widths: BTreeMap<usize, i32>,
+    pub heights: BTreeMap<i64, i32>,
+    pub master_heights: BTreeMap<i64, i32>,
     edit: Option<CellEdit>,
 }
 struct CellEdit {
@@ -15,6 +21,7 @@ struct CellEdit {
     id: i64,
     column: usize,
     revision: i64,
+    master: bool,
 }
 impl GridState {
     pub fn contains(&self, row: usize, col: usize) -> bool {
@@ -54,7 +61,116 @@ unsafe extern "system" fn edit_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LR
     }
 }
 impl State {
+    pub(super) fn can_fill_down(&self) -> bool {
+        let count = if self.view == 7 {
+            self.grid.current.0.abs_diff(self.grid.anchor.0) + 1
+        } else {
+            self.selected_task_ids().len()
+        };
+        matches!(self.view, 2 | 3 | 7)
+            && count >= 2
+            && (self.grid.anchor.1.min(self.grid.current.1)
+                ..=self.grid.anchor.1.max(self.grid.current.1))
+                .all(|i| {
+                    self.grid_columns().get(i).is_some_and(|c| {
+                        c.editable && (self.view == 7 || table::BULK_TASK_KEYS.contains(&c.key))
+                    })
+                })
+    }
+    pub(super) fn grid_fill_down(&mut self) -> Result<()> {
+        self.finish_cell_edit(true)?;
+        if !self.can_fill_down() {
+            return Err(
+                "同じ列の2行以上を選択してください。件名など個別編集専用の列は一括コピーできません"
+                    .into(),
+            );
+        }
+        let p = self
+            .project
+            .as_ref()
+            .ok_or("プロジェクトを開いてください")?;
+        let keys = self.grid_columns()[self.grid.anchor.1.min(self.grid.current.1)
+            ..=self.grid.anchor.1.max(self.grid.current.1)]
+            .iter()
+            .map(|c| c.key.to_string())
+            .collect::<Vec<_>>();
+        if self.view == 7 {
+            let rows = self.grid_rows();
+            let source = rows[self.grid.anchor.0.min(self.grid.current.0)].0;
+            let m = p.masters.iter().find(|m| m.id == source).unwrap();
+            let values = keys
+                .iter()
+                .map(|key| table::master_value(m, key))
+                .collect::<Vec<_>>();
+            let payload = table::encode(
+                &vec![values; self.grid.anchor.0.abs_diff(self.grid.current.0) + 1],
+                '\t',
+            );
+            self.master_paste(&payload)?;
+        } else {
+            let change = table::fill_tasks_down(p, &self.selected_task_ids(), &keys)?;
+            self.apply(change)?;
+        }
+        self.status = "選択列の先頭セルを下方向へコピーしました".into();
+        Ok(())
+    }
+    pub(super) fn grid_columns(&self) -> &'static [table::Column] {
+        if self.view == 7 {
+            table::master_columns(self.master_kind)
+        } else {
+            table::COLUMNS
+        }
+    }
+    pub(super) fn grid_width(&self, col: usize) -> i32 {
+        let widths = if self.view == 7 {
+            &self.grid.master_widths
+        } else {
+            &self.grid.widths
+        };
+        widths
+            .get(&col)
+            .copied()
+            .unwrap_or(self.grid_columns()[col].width)
+    }
+    pub(super) fn grid_height(&self, id: i64) -> i32 {
+        let heights = if self.view == 7 {
+            &self.grid.master_heights
+        } else {
+            &self.grid.heights
+        };
+        self.px(heights.get(&id).copied().unwrap_or(30))
+    }
+    pub(super) fn grid_row_top(&self, row: usize) -> i32 {
+        self.body.top + self.px(30) - self.y
+            + self
+                .grid_rows()
+                .iter()
+                .take(row)
+                .map(|(id, _)| self.grid_height(*id))
+                .sum::<i32>()
+    }
+    fn grid_value(&self, p: &Project, id: i64, key: &str) -> String {
+        if self.view == 7 {
+            table::master_value(p.masters.iter().find(|m| m.id == id).unwrap(), key)
+        } else {
+            table::value(p, p.tasks.iter().find(|t| t.id == id).unwrap(), key)
+        }
+    }
     pub(super) fn grid_rows(&self) -> Vec<(i64, usize)> {
+        if self.view == 7 {
+            return self
+                .project
+                .as_ref()
+                .map(|p| {
+                    p.masters
+                        .iter()
+                        .filter(|m| m.kind == self.master_kind)
+                        .map(|m| (m.id, 0))
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
+
         self.project
             .as_ref()
             .map(|p| {
@@ -77,8 +193,8 @@ impl State {
     }
     pub(super) fn grid_column(&self, x: i32) -> Option<usize> {
         let mut left = self.body.left - self.x;
-        for (i, c) in table::COLUMNS.iter().enumerate() {
-            let right = left + self.px(c.width);
+        for i in 0..self.grid_columns().len() {
+            let right = left + self.px(self.grid_width(i));
             if x >= left && x < right {
                 return Some(i);
             }
@@ -86,15 +202,24 @@ impl State {
         }
         None
     }
-    fn grid_cell(&self, point: POINT) -> Option<(usize, usize)> {
+    pub(super) fn grid_cell(&self, point: POINT) -> Option<(usize, usize)> {
         if !inside(self.body, point.x, point.y) || point.y < self.body.top + self.px(30) {
             return None;
         }
-        let row = ((point.y - self.body.top + self.y) / self.px(30) - 1) as usize;
-        (row < self.grid_rows().len()).then_some((row, self.grid_column(point.x)?))
+        let mut top = self.body.top + self.px(30) - self.y;
+        for (row, (id, _)) in self.grid_rows().iter().enumerate() {
+            let bottom = top + self.grid_height(*id);
+            if point.y >= top && point.y < bottom {
+                return Some((row, self.grid_column(point.x)?));
+            }
+            top = bottom;
+        }
+        None
     }
     pub(super) fn select_grid_point(&mut self, point: POINT, extend: bool) {
         if let Some(cell) = self.grid_cell(point) {
+            self.grid.selected_rows.clear();
+            self.grid.row_selection = false;
             if !extend || !self.grid.selection {
                 self.grid.anchor = cell;
             }
@@ -113,20 +238,24 @@ impl State {
     fn grid_rect(&self) -> RECT {
         let (row, col) = self.grid.current;
         rect(
-            self.body.left - self.x + self.px(table::COLUMNS[..col].iter().map(|c| c.width).sum()),
-            self.body.top - self.y + (row as i32 + 1) * self.px(30),
-            self.px(table::COLUMNS[col].width),
-            self.px(30),
+            self.body.left - self.x + self.px((0..col).map(|i| self.grid_width(i)).sum()),
+            self.grid_row_top(row),
+            self.px(self.grid_width(col)),
+            self.grid_rows()
+                .get(row)
+                .map_or(self.px(30), |(id, _)| self.grid_height(*id)),
         )
     }
     fn grid_move(&mut self, dr: i32, dc: i32, extend: bool) {
+        self.grid.row_selection = false;
+        self.grid.selected_rows.clear();
         let count = self.grid_rows().len();
         if count == 0 {
             return;
         }
         self.grid.current.0 = (self.grid.current.0 as i32 + dr).clamp(0, count as i32 - 1) as usize;
-        self.grid.current.1 =
-            (self.grid.current.1 as i32 + dc).clamp(0, table::COLUMNS.len() as i32 - 1) as usize;
+        self.grid.current.1 = (self.grid.current.1 as i32 + dc)
+            .clamp(0, self.grid_columns().len() as i32 - 1) as usize;
         if !extend {
             self.grid.anchor = self.grid.current;
         }
@@ -158,15 +287,20 @@ impl State {
         let Some((id, _)) = rows.get(row) else {
             return Ok(());
         };
-        let c = &table::COLUMNS[col];
+        let c = &self.grid_columns()[col];
+        if self.view != 7
+            && self.selected_task_ids().len() > 1
+            && !table::BULK_TASK_KEYS.contains(&c.key)
+        {
+            return Err("この列は個別編集専用です。1セルだけ選択してください".into());
+        }
         if !c.editable {
             return Ok(());
         }
         let p = self.project.as_ref().unwrap();
-        let t = p.tasks.iter().find(|t| t.id == *id).unwrap();
         let value = initial
             .map(|c| c.to_string())
-            .unwrap_or_else(|| table::value(p, t, c.key));
+            .unwrap_or_else(|| self.grid_value(p, *id, c.key));
         let r = self.grid_rect();
         let revision = p.revision;
         unsafe {
@@ -181,7 +315,7 @@ impl State {
                 r.left.max(self.body.left),
                 r.top.max(self.body.top + self.px(30)),
                 (r.right.min(self.body.right) - r.left.max(self.body.left)).max(self.px(80)),
-                self.px(30),
+                r.bottom - r.top,
                 Some(self.hwnd),
                 Some(HMENU(std::ptr::without_provenance_mut(501))),
                 None,
@@ -195,6 +329,7 @@ impl State {
                 id: *id,
                 column: col,
                 revision,
+                master: self.view == 7,
             });
             let _ = SetFocus(Some(h));
             send(
@@ -212,27 +347,38 @@ impl State {
             if p.revision != edit.revision {
                 return Err("編集中に変更されています。Escで取り消し、再読込してください".into());
             }
-            let mut task = p
-                .tasks
-                .iter()
-                .find(|t| t.id == edit.id)
-                .ok_or("Task no longer exists")?
-                .clone();
-            table::set_value(
-                p,
-                &mut task,
-                table::COLUMNS[edit.column].key,
-                &text(edit.hwnd),
-            )?;
-            if serde_json::to_value(&task)?
-                != serde_json::to_value(p.tasks.iter().find(|t| t.id == edit.id).unwrap())?
-            {
-                self.project = Some(self.store.apply(
-                    p.id,
-                    edit.revision,
-                    &Change::SaveTask { task },
-                    "GUI cell",
-                )?);
+            let change = if edit.master {
+                let old = p
+                    .masters
+                    .iter()
+                    .find(|m| m.id == edit.id)
+                    .ok_or("Master no longer exists")?;
+                let mut master = old.clone();
+                table::set_master_value(
+                    &mut master,
+                    self.grid_columns()[edit.column].key,
+                    &text(edit.hwnd),
+                )?;
+                (serde_json::to_value(&master)? != serde_json::to_value(old)?)
+                    .then_some(Change::SaveMaster { master })
+            } else {
+                let old = p
+                    .tasks
+                    .iter()
+                    .find(|t| t.id == edit.id)
+                    .ok_or("Task no longer exists")?;
+                let mut task = old.clone();
+                table::set_value(
+                    p,
+                    &mut task,
+                    table::COLUMNS[edit.column].key,
+                    &text(edit.hwnd),
+                )?;
+                (serde_json::to_value(&task)? != serde_json::to_value(old)?)
+                    .then_some(Change::SaveTask { task })
+            };
+            if let Some(change) = change {
+                self.project = Some(self.store.apply(p.id, edit.revision, &change, "GUI cell")?);
             }
         }
         if let Some(edit) = self.grid.edit.take() {
@@ -267,14 +413,21 @@ impl State {
         let data: Vec<_> = rows
             .iter()
             .enumerate()
-            .filter(|(i, _)| *i >= a.0.min(b.0) && *i <= a.0.max(b.0))
+            .filter(|(i, (id, _))| {
+                if self.grid.row_selection {
+                    self.grid.selected_rows.contains(id)
+                } else {
+                    *i >= a.0.min(b.0) && *i <= a.0.max(b.0)
+                }
+            })
             .map(|(_, (id, _))| {
-                let t = p.tasks.iter().find(|t| t.id == *id).unwrap();
-                table::COLUMNS
+                self.grid_columns()
                     .iter()
                     .enumerate()
-                    .filter(|(i, _)| *i >= a.1.min(b.1) && *i <= a.1.max(b.1))
-                    .map(|(_, c)| table::value(p, t, c.key))
+                    .filter(|(i, _)| {
+                        self.grid.row_selection || (*i >= a.1.min(b.1) && *i <= a.1.max(b.1))
+                    })
+                    .map(|(_, c)| self.grid_value(p, *id, c.key))
                     .collect()
             })
             .collect();
@@ -282,6 +435,9 @@ impl State {
     }
     pub(super) fn grid_paste(&mut self, text: &str) -> Result<()> {
         self.finish_cell_edit(true)?;
+        if self.view == 7 {
+            return self.master_paste(text);
+        }
         let data = table::decode(text, '\t')?;
         if data.is_empty() {
             return Ok(());
@@ -291,6 +447,17 @@ impl State {
             .project
             .as_ref()
             .ok_or("先にプロジェクトを開いてください")?;
+        let selected = self.selected_task_ids();
+        if data.len() == 1
+            && data[0].len() == 1
+            && selected.len() > 1
+            && self.grid.anchor.1 == self.grid.current.1
+        {
+            let key = table::COLUMNS[self.grid.current.1].key;
+            let change =
+                table::batch_task_attributes(p, &selected, &[(key.into(), data[0][0].clone())])?;
+            return self.apply(change);
+        }
         let (row, col) = (
             self.grid.anchor.0.min(self.grid.current.0),
             self.grid.anchor.1.min(self.grid.current.1),
@@ -299,6 +466,16 @@ impl State {
             || data.iter().any(|r| col + r.len() > table::COLUMNS.len())
         {
             return Err("貼り付け範囲が一覧の行・列を超えています".into());
+        }
+        if data.len() > 1 {
+            for values in &data {
+                table::validate_bulk_keys(
+                    table::COLUMNS[col..col + values.len()]
+                        .iter()
+                        .filter(|c| c.editable)
+                        .map(|c| c.key),
+                )?;
+            }
         }
         let mut tasks = Vec::new();
         for (offset, values) in data.iter().enumerate() {
@@ -324,17 +501,30 @@ impl State {
         Ok(())
     }
     fn grid_clear(&mut self) -> Result<()> {
+        if self.view == 7 {
+            return self.master_clear();
+        }
         let Some(p) = &self.project else {
             return Ok(());
         };
         let rows = self.grid_rows();
         let (a, b) = (self.grid.anchor, self.grid.current);
+        if self.selected_task_ids().len() > 1 {
+            table::validate_bulk_keys(
+                table::COLUMNS[a.1.min(b.1)..=a.1.max(b.1)]
+                    .iter()
+                    .filter(|c| c.editable)
+                    .map(|c| c.key),
+            )?;
+        }
         let mut tasks = Vec::new();
-        for (_, (id, _)) in rows
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i >= a.0.min(b.0) && *i <= a.0.max(b.0))
-        {
+        for (_, (id, _)) in rows.iter().enumerate().filter(|(i, (id, _))| {
+            if self.grid.row_selection {
+                self.grid.selected_rows.contains(id)
+            } else {
+                *i >= a.0.min(b.0) && *i <= a.0.max(b.0)
+            }
+        }) {
             let mut t = p.tasks.iter().find(|t| t.id == *id).unwrap().clone();
             for (_, c) in table::COLUMNS
                 .iter()
@@ -356,10 +546,12 @@ impl State {
         if ctrl && key == b'F' as u16 {
             return Some(self.search_form());
         }
-        if !matches!(self.view, 2 | 3) {
+        if !matches!(self.view, 2 | 3 | 7) {
             return None;
         }
-        let result = if key == VK_DELETE.0 {
+        let result = if ctrl && key == b'D' as u16 {
+            self.grid_fill_down()
+        } else if key == VK_DELETE.0 {
             self.grid_clear()
         } else if ctrl && key == b'C' as u16 {
             if !SMOKE.with(|s| s.get())
@@ -376,16 +568,21 @@ impl State {
                 Err("クリップボードにテキストがありません".into())
             }
         } else if ctrl && key == b'A' as u16 {
+            self.grid.row_selection = false;
+            self.grid.selected_rows.clear();
             self.grid.anchor = (0, 0);
             self.grid.current = (
                 self.grid_rows().len().saturating_sub(1),
-                table::COLUMNS.len() - 1,
+                self.grid_columns().len() - 1,
             );
             self.grid.selection = true;
             invalidate(self.hwnd);
             Ok(())
         } else if key == VK_F2.0 || key == VK_RETURN.0 {
-            if key == VK_RETURN.0 && unsafe { GetKeyState(VK_MENU.0 as i32) < 0 } {
+            if key == VK_RETURN.0
+                && (self.selected_task_ids().len() > 1
+                    || unsafe { GetKeyState(VK_MENU.0 as i32) < 0 })
+            {
                 self.command(112)
             } else {
                 self.begin_cell_edit(None)

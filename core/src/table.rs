@@ -1,11 +1,157 @@
 //! Shared task grid, quoted TSV clipboard payloads and RFC 4180 CSV export.
 use crate::*;
 
+#[derive(Clone, Copy)]
 pub struct Column {
     pub key: &'static str,
     pub label: &'static str,
     pub width: i32,
     pub editable: bool,
+}
+pub const MASTER_COLUMNS: &[Column] = &[
+    Column {
+        key: "id",
+        label: "ID",
+        width: 70,
+        editable: false,
+    },
+    Column {
+        key: "kind",
+        label: "種類",
+        width: 120,
+        editable: true,
+    },
+    Column {
+        key: "name",
+        label: "名前",
+        width: 300,
+        editable: true,
+    },
+    Column {
+        key: "parent",
+        label: "親カテゴリID",
+        width: 160,
+        editable: true,
+    },
+    Column {
+        key: "date",
+        label: "休日の日付",
+        width: 160,
+        editable: true,
+    },
+];
+pub fn master_columns(kind: MasterKind) -> &'static [Column] {
+    const CATEGORY: &[Column] = &[MASTER_COLUMNS[0], MASTER_COLUMNS[2], MASTER_COLUMNS[3]];
+    const ASSIGNEE: &[Column] = &[MASTER_COLUMNS[0], MASTER_COLUMNS[2]];
+    const HOLIDAY: &[Column] = &[MASTER_COLUMNS[0], MASTER_COLUMNS[2], MASTER_COLUMNS[4]];
+    match kind {
+        MasterKind::Category => CATEGORY,
+        MasterKind::Assignee => ASSIGNEE,
+        MasterKind::Holiday => HOLIDAY,
+    }
+}
+pub const BULK_TASK_KEYS: &[&str] = &[
+    "assignee",
+    "category",
+    "status",
+    "priority",
+    "start",
+    "due",
+    "completed_on",
+    "progress",
+];
+pub fn validate_bulk_keys<'a>(keys: impl IntoIterator<Item = &'a str>) -> Result<()> {
+    for key in keys {
+        if !BULK_TASK_KEYS.contains(&key) {
+            return Err(invalid(format!(
+                "{}は個別編集専用です。一括変更できません",
+                COLUMNS
+                    .iter()
+                    .find(|c| c.key == key)
+                    .map_or(key, |c| c.label)
+            )));
+        }
+    }
+    Ok(())
+}
+pub fn fill_tasks_down(p: &Project, ids: &[i64], keys: &[String]) -> Result<Change> {
+    if ids.len() < 2 {
+        return Err(invalid("コピー元を先頭に含む2行以上を選択してください"));
+    }
+    validate_bulk_keys(keys.iter().map(String::as_str))?;
+    let source = p
+        .tasks
+        .iter()
+        .find(|t| t.id == ids[0])
+        .ok_or_else(|| invalid("Copy source no longer exists"))?;
+    let values = keys
+        .iter()
+        .map(|key| {
+            (
+                key.clone(),
+                match key.as_str() {
+                    "assignee" => source.assignee.map(|id| id.to_string()).unwrap_or_default(),
+                    "category" => source.category.map(|id| id.to_string()).unwrap_or_default(),
+                    _ => value(p, source, key),
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    batch_task_attributes(p, &ids[1..], &values)
+}
+pub fn master_value(m: &Master, key: &str) -> String {
+    match key {
+        "id" => m.id.to_string(),
+        "kind" => match m.kind {
+            MasterKind::Category => "カテゴリ",
+            MasterKind::Assignee => "担当者",
+            MasterKind::Holiday => "休日",
+        }
+        .into(),
+        "name" => m.name.clone(),
+        "parent" => m.parent.map(|id| id.to_string()).unwrap_or_default(),
+        "date" => m.date.map(|d| d.to_string()).unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+pub fn set_master_value(m: &mut Master, key: &str, value: &str) -> Result<()> {
+    match key {
+        "name" => m.name = value.into(),
+        "kind" => {
+            m.kind = match value.trim() {
+                "カテゴリ" | "category" => MasterKind::Category,
+                "担当者" | "assignee" => MasterKind::Assignee,
+                "休日" | "holiday" => MasterKind::Holiday,
+                _ => return Err(invalid("種類はカテゴリ・担当者・休日を指定してください")),
+            }
+        }
+        "parent" => {
+            m.parent = if value.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    value
+                        .trim()
+                        .parse()
+                        .map_err(|_| invalid("親カテゴリIDは整数を指定してください"))?,
+                )
+            }
+        }
+        "date" => {
+            m.date = if value.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    value
+                        .trim()
+                        .parse()
+                        .map_err(|_| invalid("日付はYYYY-MM-DDを指定してください"))?,
+                )
+            }
+        }
+        _ => return Err(invalid("読み取り専用のマスタ列です")),
+    }
+    Ok(())
 }
 macro_rules! columns { ($($key:literal,$label:literal,$width:literal,$edit:literal);* $(;)?) => { pub const COLUMNS: &[Column] = &[$(Column{key:$key,label:$label,width:$width,editable:$edit}),*]; }; }
 columns! {
@@ -33,6 +179,7 @@ columns! {
     "category_1","カテゴリ1",160,false;
     "category_2","カテゴリ2",160,false;
     "category_3","カテゴリ3",160,false;
+    "completed_on","完了日",120,true;
 }
 pub fn value(p: &Project, t: &Task, key: &str) -> String {
     let master = |id| {
@@ -169,7 +316,7 @@ pub fn set_value(p: &Project, t: &mut Task, key: &str, text: &str) -> Result<()>
                     .into()
             }
         }
-        "start" | "due" => {
+        "start" | "due" | "completed_on" => {
             if text.is_empty() {
                 serde_json::Value::Null
             } else {
@@ -203,6 +350,38 @@ pub fn set_value(p: &Project, t: &mut Task, key: &str, text: &str) -> Result<()>
     object[key] = v;
     *t = serde_json::from_value(object)?;
     Ok(())
+}
+/// Validate a multi-row property edit against the same rules as a real transaction.
+pub fn batch_task_attributes(
+    p: &Project,
+    ids: &[i64],
+    values: &[(String, String)],
+) -> Result<Change> {
+    validate_bulk_keys(values.iter().map(|(key, _)| key.as_str()))?;
+    if values.is_empty() {
+        return Err(invalid("変更する属性を選んでください"));
+    }
+    let mut keys = BTreeSet::new();
+    if values.iter().any(|(key, _)| !keys.insert(key)) {
+        return Err(invalid("Duplicate batch attribute"));
+    }
+    let mut tasks = Vec::new();
+    for id in ids {
+        let mut task = p
+            .tasks
+            .iter()
+            .find(|t| t.id == *id)
+            .ok_or_else(|| invalid("Selected task no longer exists"))?
+            .clone();
+        for (key, value) in values {
+            set_value(p, &mut task, key, value)?;
+        }
+        tasks.push(task);
+    }
+    let change = Change::SaveTasks { tasks };
+    let mut preview = p.clone();
+    preview.change(&change)?;
+    Ok(change)
 }
 /// Quote delimiters, newlines and quotes for lossless spreadsheet interchange.
 pub fn encode(rows: &[Vec<String>], separator: char) -> String {

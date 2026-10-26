@@ -7,7 +7,7 @@ pub(super) struct Timeline {
     pub day_width: i32,
     pub lightning: bool,
     pub as_of: NaiveDate,
-    pub resizing: bool,
+    pub heights: BTreeMap<i64, i32>,
 }
 impl Default for Timeline {
     fn default() -> Self {
@@ -17,7 +17,7 @@ impl Default for Timeline {
             day_width: 26,
             lightning: true,
             as_of: chrono::Local::now().date_naive(),
-            resizing: false,
+            heights: BTreeMap::new(),
         }
     }
 }
@@ -34,6 +34,9 @@ impl Viewport {
     }
 }
 impl Timeline {
+    pub fn height(&self, id: i64) -> i32 {
+        self.heights.get(&id).copied().unwrap_or(30)
+    }
     pub fn width(&self, dpi: i32, body: RECT) -> i32 {
         (self.name_width * dpi / 96)
             .min((body.right - body.left - 90 * dpi / 96).max(120 * dpi / 96))
@@ -116,7 +119,6 @@ pub(super) fn paint(
     });
     let name_w = options.width(v.dpi, a);
     let day = v.px(options.day_width);
-    let row = v.px(30);
     let head = v.px(24);
     let header = head * 4;
     let base = a.top + header;
@@ -210,8 +212,11 @@ pub(super) fn paint(
         .collect::<Vec<_>>();
     let baseline = x + (options.as_of - first).num_days() as i32 * day + day / 2;
     let mut previous = (baseline, base);
-    for (i, (t, _)) in rows.iter().enumerate() {
-        let y = base - v.y + i as i32 * row;
+    let mut next_y = base - v.y;
+    for (t, _) in &rows {
+        let y = next_y;
+        let row = v.px(options.height(t.id));
+        next_y += row;
         if y + row < base || y > a.bottom {
             continue;
         }
@@ -274,12 +279,12 @@ pub(super) fn paint(
                 } else {
                     (baseline, y + row / 2)
                 };
-                line(dc, previous, point, red);
+                stroke(dc, previous, point, red, v.px(3));
                 previous = point;
             }
         } else if options.lightning {
             let point = (baseline, y + row / 2);
-            line(dc, previous, point, red);
+            stroke(dc, previous, point, red, v.px(3));
             previous = point;
         }
         line(
@@ -290,7 +295,7 @@ pub(super) fn paint(
         );
     }
     if options.lightning {
-        line(dc, previous, (baseline, a.bottom), red);
+        stroke(dc, previous, (baseline, a.bottom), red, v.px(3));
         line(
             dc,
             (baseline, base),
@@ -306,8 +311,11 @@ pub(super) fn paint(
     unsafe {
         IntersectClipRect(dc, a.left, base, a.left + name_w, a.bottom);
     }
+    let mut next_y = base - v.y;
     for (i, (t, depth)) in rows.iter().enumerate() {
-        let y = base - v.y + i as i32 * row;
+        let y = next_y;
+        let row = v.px(options.height(t.id));
+        next_y += row;
         if y + row <= base || y >= a.bottom {
             continue;
         }
@@ -334,6 +342,12 @@ pub(super) fn paint(
                 t.due.map(|d| d.to_string()).unwrap_or_default()
             ),
             black,
+        );
+        line(
+            dc,
+            (a.left, y + row - 1),
+            (a.left + name_w, y + row - 1),
+            COLORREF(0xd0d0d0),
         );
         hits.push((rect(a.left, y, a.right - a.left, row), t.id));
     }

@@ -1,5 +1,7 @@
 mod demo;
+mod http_server;
 mod mcp;
+mod pat;
 use std::{io, path::Path};
 use yy_project::Store;
 fn main() {
@@ -12,6 +14,72 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.first().and_then(|s| s.to_str()) {
         Some("--version") => println!("yyproject {}", env!("CARGO_PKG_VERSION")),
+        Some("--generate-pat") => {
+            let user = args
+                .get(1)
+                .and_then(|s| s.to_str())
+                .ok_or("Usage: yyproject --generate-pat USER [--auth-config FILE] [--read-only]")?;
+            let mut config = std::path::PathBuf::from("yyproject-server.toml");
+            let mut read_only = false;
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].to_str() {
+                    Some("--auth-config") => {
+                        i += 1;
+                        config = args.get(i).ok_or("Missing auth config path")?.into();
+                    }
+                    Some("--read-only") => read_only = true,
+                    _ => return Err("Unknown PAT option".into()),
+                }
+                i += 1;
+            }
+            let token = pat::generate(&config, user, read_only).map_err(|e| e.to_string())?;
+            println!(
+                "{}",
+                serde_json::json!({"user":user,"pat":token,"config":config,"read_only":read_only})
+            );
+        }
+        Some(mode @ ("--mcp-http" | "--mcp-http-postgres")) => {
+            let postgres = mode == "--mcp-http-postgres";
+            let mut i = if postgres { 1 } else { 2 };
+            let path = if postgres {
+                None
+            } else {
+                Some(args.get(1).ok_or("Usage: yyproject --mcp-http DATABASE [--listen IP:PORT] [--auth-config FILE] [--read-only]")?)
+            };
+            let mut listen = "127.0.0.1:8740".parse()?;
+            let mut config = std::path::PathBuf::from("yyproject-server.toml");
+            let mut read_only = false;
+            while i < args.len() {
+                match args[i].to_str() {
+                    Some("--listen") => {
+                        i += 1;
+                        listen = args
+                            .get(i)
+                            .and_then(|s| s.to_str())
+                            .ok_or("Missing listen IP:PORT")?
+                            .parse()?;
+                    }
+                    Some("--auth-config") => {
+                        i += 1;
+                        config = args.get(i).ok_or("Missing auth config path")?.into();
+                    }
+                    Some("--read-only") => read_only = true,
+                    _ => return Err("Unknown HTTP server option".into()),
+                }
+                i += 1;
+            }
+            let store = if let Some(path) = path {
+                Store::open(Path::new(path), read_only)?
+            } else {
+                Store::connect_postgres(
+                    &std::env::var("YYPROJECT_DATABASE_URL")
+                        .map_err(|_| "Set YYPROJECT_DATABASE_URL")?,
+                    read_only,
+                )?
+            };
+            http_server::serve(store, listen, config)?;
+        }
         Some("--mcp") => {
             if !(2..=3).contains(&args.len()) || (args.len() == 3 && args[2] != "--read-only") {
                 return Err("Usage: yyproject --mcp DATABASE [--read-only]".into());

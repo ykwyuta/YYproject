@@ -40,8 +40,9 @@ def main():
         for i in range(3):
             changes.append({'operation':'save_master','master':{'id':0,'name':f'分類{i+1}','kind':'category','parent':i if i else None}})
         for i in range(3):
-            changes.append({'operation':'save_task','task':{'title':f'階層タスク{i+1}','parent':i if i else None,'category':3,'description':'全文語\n日本語,"引用"','review_note':'メモ','estimate':8}})
+            changes.append({'operation':'save_task','task':{'title':f'階層タスク{i+1}','parent':i if i else None,'category':3,'description':'全文語\n日本語,"引用"','review_note':'メモ','estimate':8,'completed_on':'2026-10-27' if i==1 else None}})
         changes.append({'operation':'save_task','task':{'title':'節目','milestone':True,'start':'2026-12-30','due':'2026-12-30'}})
+        changes.append({'operation':'save_masters','masters':[{'id':1,'name':'分類一括更新','kind':'category','parent':None}]})
         for i in range(110):
             changes.append({'operation':'rename','name':f'移行と往復 {i}','start':'2026-01-01','finish':'2026-12-31'})
         for change in changes:
@@ -52,6 +53,7 @@ def main():
         assert data(pg_tool(exe,'project_list',{}))['projects']==[]
         subprocess.run([str(exe),'--migrate-to-postgres',str(source)],check=True,capture_output=True,text=True,encoding='utf-8',timeout=30)
         assert data(pg_tool(exe,'project_get',{'project_id':1}))==original
+        assert original['tasks'][1]['completed_on']=='2026-10-27'
         first=data(pg_tool(exe,'audit_list',{'project_id':1}))['changes'];second=data(pg_tool(exe,'audit_list',{'project_id':1,'after':first[-1]['id']}))['changes']
         assert len(first)==100 and len(first+second)==revision
         search=data(pg_tool(exe,'task_list',{'project_id':1,'query':'全文語','category':1}));assert search['total']==3
@@ -81,6 +83,6 @@ def main():
         assert new_audit[-1][4]==revision+2
         before=target.read_bytes();duplicate=subprocess.run([str(exe),'--export-sqlite',str(target)],capture_output=True,timeout=30);assert duplicate.returncode!=0 and target.read_bytes()==before
         created=data(pg_tool(exe,'project_create',{'name':'ID継続','start':'2026-01-01','finish':'2026-12-31','actor':'test'}));assert created['id']==2
-    print('PostgreSQL real MCP, full-text/column filters, hierarchy, milestone, revisions, read-only, batch rollback, empty-target guard, all audit rows, SQLite round-trip and ID sequences: OK')
+    print('PostgreSQL real MCP, full-text/column filters, hierarchy, milestone, master batch, actual completion date, revisions, read-only, batch rollback, empty-target guard, all audit rows, SQLite round-trip and ID sequences: OK')
 
 if __name__=='__main__':main()

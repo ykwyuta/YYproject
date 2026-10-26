@@ -49,6 +49,12 @@ jobs:
           EXE=target/release/yyproject
           if [ "$RUNNER_OS" = Windows ]; then EXE="$EXE.exe"; fi
           python tools/validate_operations.py "$EXE"
+      - name: Streamable HTTP and PAT authentication
+        shell: bash
+        run: |
+          EXE=target/release/yyproject
+          if [ "$RUNNER_OS" = Windows ]; then EXE="$EXE.exe"; fi
+          python tools/test_http.py "$EXE"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -105,3 +111,5 @@ jobs:
       - run: cargo build --workspace --locked
       - name: Real PostgreSQL and bidirectional SQLite migration
         run: python tools/test_postgres.py target/debug/yyproject
+      - name: Streamable HTTP against PostgreSQL
+        run: python tools/test_http.py target/debug/yyproject --postgres

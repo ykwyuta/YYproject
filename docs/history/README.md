@@ -15,3 +15,5 @@
 - [カンバン操作・文字表示の改善（2026-10-27）](verification/yyproject-kanban-2026-10-27.md)
 
 - [階層・グリッド・ガント・CSV・PostgreSQLの追加と検証（2026-10-27）](verification/yyproject-features-postgresql-2026-10-27.md)
+- [一覧編集・日次チャート・複数行更新・Streamable HTTP/PATの検証](verification/yyproject-ui-http-pat-2026-10-27.md)
+- [種類別マスタ・同列コピー・逆順日付軸の検証](verification/yyproject-master-fill-2026-10-27.md)
