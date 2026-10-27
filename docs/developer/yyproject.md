@@ -156,6 +156,8 @@ app/src/management_demo.rsは従来の再生に4番目の案件24項目と18記�
 
 ## 内蔵Web UI
 
+ネイティブボタンのWM_DRAWITEMはAPPのRefCell借用より前に処理し、描画完了時TRUEを返す。WindowsはMoveWindow／SetFocus中にも同期的に描画を呼び戻すため、Stateの借用成功を描画条件にしない。native/shellのコピー可能なButtonStyleを起動・レイアウト・DPI変更時に更新して利用する。ボタンの背景消去を抑え、バッファーに全体を描いて転送する。回帰試験はAPPの可変借用中に実WM_DRAWITEMを送って背景・文字画素を確認する。
+
 Windowsのnative/shell.rsはWebと共通の配色・外枠・ナビゲーション・ツールバーを提供する。実Win32ボタンをowner drawし、WM_COMMANDで既存の業務コマンドへ接続する。狭幅／低高さではComboBoxへ切り替える。body.leftを含む表示座標と実DPIでレイアウトし、水平スクロールのページ幅はbody.right-body.leftとする。選択や編集は既存のnative/grid・timelineを継続使用する。smokeでは実ボタン・ComboBoxの経路、コントロールの矩形、既存の保存結果を確認する。
 
 app/src/web.rsは --web/--web-postgres のときだけHTTPルーターに追加する。MCP HTTPと同じService/Store Mutexを使い、業務データ・版競合・監査・トランザクションを共用する。Web APIはread whitelistを持つmcp::callと、共通table列定義・型変換によるgrid/edit/edit_masterを提供する。書込actorは認証名に固定する。グリッドは矩形TSV、列の編集可否、一括属性の許可キーを検査してからSaveTasks/SaveMastersで原子的に適用する。SQLiteバックアップは専用一時パスから生成し、任意のサーバーパスを受け取らない。

@@ -3089,6 +3089,13 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
             let _ = PostMessageW(Some(h), WM_CANCELMODE, WPARAM(0), LPARAM(0));
             return LRESULT(0);
         }
+        if m == WM_DRAWITEM && l.0 != 0 {
+            let item = &*(l.0 as *const DRAWITEMSTRUCT);
+            if GetParent(item.hwndItem).ok() == Some(h) {
+                shell::draw_button(item);
+                return LRESULT(1);
+            }
+        }
         if m == WM_DESTROY {
             PostQuitMessage(0);
             return LRESULT(0);
@@ -3138,10 +3145,6 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                 return false;
             };
             let result: Result<()> = match m {
-                WM_DRAWITEM => {
-                    s.draw_shell_button(&*(l.0 as *const DRAWITEMSTRUCT));
-                    Ok(())
-                }
                 WM_SIZE => {
                     s.layout();
                     invalidate(h);
@@ -3447,6 +3450,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     let old = s.font;
                     s.font = font;
                     s.dpi = GetDpiForWindow(h).max(96) as i32;
+                    shell::publish(s.font, s.dpi, s.view);
                     for c in [s.selector, s.tabs, s.master_tabs]
                         .into_iter()
                         .chain(s.shell_controls.iter().map(|(h, _)| *h))
