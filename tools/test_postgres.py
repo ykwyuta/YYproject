@@ -43,6 +43,11 @@ def main():
             changes.append({'operation':'save_task','task':{'title':f'階層タスク{i+1}','parent':i if i else None,'category':3,'description':'全文語\n日本語,"引用"','review_note':'メモ','estimate':8,'completed_on':'2026-10-27' if i==1 else None}})
         changes.append({'operation':'save_task','task':{'title':'節目','milestone':True,'start':'2026-12-30','due':'2026-12-30'}})
         changes.append({'operation':'save_masters','masters':[{'id':1,'name':'分類一括更新','kind':'category','parent':None}]})
+        changes.extend([
+            {'operation':'save_task','task':{'kind':'inquiry','title':'移行する依頼','inquiry':{'target_team':'基盤','requested_at':'2026-01-01T09:00:00Z'}}},
+            {'operation':'save_exchange','id':5,'entry':{'at':'2026-01-02T09:00:00Z','text':'SQLiteからのやりとり記録'}},
+            {'operation':'save_task','task':{'kind':'workaround','title':'移行する暫定対応','workaround':{'reason':'製品修正待ち','action':'手動再送','applied_at':'2026-01-02T09:00:00Z','detected_at':'2026-01-01T09:00:00Z','permanent_requirements':'修正版','classification':'手作業','permanent_due_on':'2026-02-01'}}}
+        ])
         for i in range(110):
             changes.append({'operation':'rename','name':f'移行と往復 {i}','start':'2026-01-01','finish':'2026-12-31'})
         for change in changes:
@@ -64,7 +69,7 @@ def main():
         failed=pg_tool(exe,'project_change',{'project_id':1,'expected_revision':revision,'actor':'grid','change':{'operation':'save_tasks','tasks':invalid}});assert failed['result']['isError']
         assert data(pg_tool(exe,'project_get',{'project_id':1}))==original
         duplicate=subprocess.run([str(exe),'--migrate-to-postgres',str(source)],capture_output=True,text=True,encoding='utf-8',timeout=30);assert duplicate.returncode!=0
-        added=data(pg_tool(exe,'project_change',{'project_id':1,'expected_revision':revision,'actor':'postgres','change':{'operation':'save_task','task':{'title':'移行後もIDを継続','parent':2}}}));assert added['tasks'][-1]['id']==5
+        added=data(pg_tool(exe,'project_change',{'project_id':1,'expected_revision':revision,'actor':'postgres','change':{'operation':'save_task','task':{'title':'移行後もIDを継続','parent':2}}}));assert added['tasks'][-1]['id']==7
         # Two independently connected clients race with the same observed revision.
         def compete(number):
             return pg_tool(exe,'project_change',{'project_id':1,'expected_revision':revision+1,'actor':f'parallel-{number}','change':{'operation':'save_task','task':dict(added['tasks'][-1],title=f'競合更新 {number}')}})
@@ -85,6 +90,8 @@ def main():
         created=data(pg_tool(exe,'project_create',{'name':'ID継続','start':'2026-01-01','finish':'2026-12-31','actor':'test'}));assert created['id']==2
         from test_cases import exercise_cases
         exercise_cases(exe)
+        from test_management import exercise_management
+        exercise_management(exe)
     print('PostgreSQL real MCP, full-text/column filters, hierarchy, milestone, master batch, actual completion date, revisions, read-only, batch rollback, empty-target guard, all audit rows, SQLite round-trip and ID sequences: OK')
 
 if __name__=='__main__':main()

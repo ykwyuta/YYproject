@@ -155,6 +155,19 @@ def main():
             statistics = data(server.tool(bob, b, 'case_statistics', {'project_id': pid, 'kind': 'bug', 'from': '2026-01-01', 'to': '2026-01-03'}))
             assert statistics['total'] == 1 and statistics['daily'][-1]['open'] == 1 and statistics['causes'] == {'HTTP原因': 1}
             assert case['tasks'][-1]['case']['permanent_difficulty'] == 'high'
+            for kind,details in [('inquiry',{'target_team':'HTTP基盤','requested_at':'2026-01-01T09:00:00Z'}),('workaround',{'reason':'HTTP修正待ち','detected_at':'2026-01-01T09:00:00Z'})]:
+                case=data(server.tool(alice,a,'project_change',{'project_id':pid,'expected_revision':case['revision'],'actor':'spoofed','change':{'operation':'save_task','task':{'kind':kind,'title':'HTTP '+kind,kind:details}}}))
+                mid=case['tasks'][-1]['id']
+                if kind=='inquiry':
+                    change={'operation':'save_exchange','id':mid,'entry':{'text':'HTTP回答記録'}}
+                    assert server.tool(bob,b,'project_change',{'project_id':pid,'expected_revision':case['revision'],'actor':'spoofed','change':change})['isError']
+                    case=data(server.tool(alice,a,'project_change',{'project_id':pid,'expected_revision':case['revision'],'actor':'spoofed','change':change}))
+                st=data(server.tool(bob,b,'management_statistics',{'project_id':pid,'kind':kind,'from':'2026-01-01','to':'2026-01-03'}))
+                assert st['total']==1 and st['open']==1
+                exported=data(server.tool(bob,b,'csv_export',{'project_id':pid,'columns':['title',kind+'.'+('target_team' if kind=='inquiry' else 'reason')],'filter':{'kind':kind}}))
+                assert 'HTTP '+kind in exported['content']
+            audits=data(server.tool(alice,a,'audit_list',{'project_id':pid}))['changes']
+            assert all(row['actor']=='alice' for row in audits)
             assert server.request(alice, session=a, method='DELETE')[0] == 204
             assert server.request(alice, {'jsonrpc': '2.0', 'id': 3, 'method': 'ping'}, a)[0] == 404
             assert server.request(alice, session=a, method='GET')[0] == 404

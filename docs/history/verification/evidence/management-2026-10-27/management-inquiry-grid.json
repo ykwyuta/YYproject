@@ -1,0 +1,33 @@
+{
+  "backend": "SQLite",
+  "body": [
+    0,
+    150,
+    1220,
+    760
+  ],
+  "capture_note": "Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark.",
+  "client": [
+    1220,
+    816
+  ],
+  "content": [
+    7200,
+    612
+  ],
+  "dpi": 192,
+  "paint_microseconds": 6440,
+  "project_id": 4,
+  "project_items": 24,
+  "scroll": [
+    0,
+    0
+  ],
+  "timeline_day_width": 30,
+  "timeline_lightning": true,
+  "timeline_name_width": 480,
+  "timeline_origin": "2026-12-28",
+  "view": 11,
+  "view_name": "依頼・質問一覧",
+  "visible_hit_targets": 6
+}

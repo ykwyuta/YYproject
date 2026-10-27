@@ -1,0 +1,122 @@
+info: downloading component 'rustfmt'
+info: installing component 'rustfmt'
+info: downloading component 'clippy'
+info: installing component 'clippy'
+    Checking yy-project v0.2.0 (/work/core)
+    Checking yyproject v0.2.0 (/work/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.16s
+   Compiling yy-project v0.2.0 (/work/core)
+   Compiling yyproject v0.2.0 (/work/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.57s
+     Running unittests src/lib.rs (/out/debug/deps/yy_project-3cbf5079dbd2f031)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cases.rs (/out/debug/deps/cases-23c966ee9c272191)
+
+running 3 tests
+test undated_legacy_issues_are_not_given_invented_detection_dates_and_archived_cases_are_separate ... ok
+test convergence_separates_bugs_issues_and_cancellation_and_retains_reopening_history ... ok
+test case_edits_validate_timestamps_atomically_preserve_conflicts_and_export_full_details ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/hierarchy_grid.rs (/out/debug/deps/hierarchy_grid-066018e18147d998)
+
+running 8 tests
+test clipboard_csv_and_full_text_search_preserve_unicode_quotes_and_multiline_values ... ok
+test master_grid_batch_keeps_conflicts_audits_and_validation_atomic ... ok
+test batch_edits_are_atomic_and_completion_gates_still_apply ... ok
+test jira_export_preserves_filtered_ancestors_types_and_quoted_fields ... ok
+test master_columns_are_exclusive_and_fill_down_preserves_individual_task_fields ... ok
+test hierarchical_categories_and_tasks_are_validated_and_reordering_preserves_subtrees ... ok
+test selected_rows_update_attributes_and_actual_completion_date_atomically ... ok
+test milestones_and_complete_sqlite_transfer_keep_ids_history_and_all_audit_rows ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/management.rs (/out/debug/deps/management-1b3edf3888b728d0)
+
+running 3 tests
+test version_five_upgrades_only_after_atomic_management_write ... ok
+test management_daily_cutoffs_and_workaround_cancellation ... ok
+test exchange_identity_history_atomicity_and_sqlite_transfer ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/store.rs (/out/debug/deps/store-64d053f011197226)
+
+running 12 tests
+test filters_compose_and_exclude_finished_or_undated_tasks_from_overdue ... ok
+test refuses_foreign_databases_invalid_values_and_read_only_writes ... ok
+test durable_changes_conflicts_and_ids_do_not_reuse_deleted_objects ... ok
+test calendar_week_skipping_matches_a_day_by_day_reference ... ok
+test progress_history_keeps_prior_scope_and_real_recorded_values ... ok
+test review_classification_and_issue_effort_are_validated_and_persisted ... ok
+test schedule_preview_preserves_finished_dates_and_overrun_requires_explicit_consent ... ok
+test schedule_excludes_weekends_holidays_and_applies_finish_start_lag ... ok
+test completion_requires_predecessors_and_reopening_requires_remaining_work ... ok
+test archive_preview_preserves_ids_links_and_masters_and_restore_is_atomic ... ok
+test cycle_missing_ids_and_master_removal_are_atomic ... ok
+test legacy_documents_keep_effort_defaults_and_only_successful_writes_upgrade_format ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/main.rs (/out/debug/deps/yyproject-17684af3a7e5b3a8)
+
+running 8 tests
+test http_server::tests::transport_rejects_batches_invalid_ids_and_ambiguous_response_messages ... ok
+test pat::tests::failed_generation_releases_lock_and_does_not_replace_config ... ok
+test pat::tests::generation_hashes_rotates_and_preserves_other_users ... ok
+test demo::tests::bundled_database_is_complete_and_independent ... ok
+test mcp::tests::malformed_and_oversized_input_resynchronizes_without_stdout_logs ... ok
+test mcp::tests::lifecycle_schema_writes_errors_and_revisions_share_the_store ... ok
+test demo::tests::generated_scenario_covers_changes_rework_and_parallel_projects_without_overwriting ... ok
+test management_demo::tests::expanded_scenario_keeps_original_and_management_separate ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.80s
+
+     Running unittests src/gui_main.rs (/out/debug/deps/yyprojectw-b746cfcc79bea711)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests yy_project
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling yyproject v0.2.0 (/work/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.10s
+Read-only archive impact and actual MCP archive/filter/restore: OK
+Read-only preview and composed filters, invalid arguments: OK
+Bundled demo: MCP project and issues: OK
+MCP stdio initialize, discovery, Unicode task persistence, conflict, audit, read-only: OK
+Real MCP bug/issue isolation, investigation fields, UTC dates, daily convergence, classifications, readonly statistics, atomic invalid dates and full SQLite transfer: OK
+PASS management: separate kinds and exchange directions
+PASS management: exchange edit, replacement preservation, full-text/column filters and quoted multiline CSV
+PASS management: bulk/save_tasks, same-column values, row reorder
+PASS management: daily convergence, classification, overdue, unanswered and temporary-action statistics
+PASS management: invalid log, missing ID, stale revision and read-only rollback
+PASS management: archive/restore preserves logs and audited changes
+PASS management: separate kinds and exchange directions
+PASS management: exchange edit, replacement preservation, full-text/column filters and quoted multiline CSV
+PASS management: bulk/save_tasks, same-column values, row reorder
+PASS management: daily convergence, classification, overdue, unanswered and temporary-action statistics
+PASS management: invalid log, missing ID, stale revision and read-only rollback
+PASS management: archive/restore preserves logs and audited changes
+Streamable HTTP real endpoint, PAT hashes/rotation/user binding, lifecycle, headers, limits, read-only, audit identity and concurrent conflicts: OK
+Real MCP bug/issue isolation, investigation fields, UTC dates, daily convergence, classifications, readonly statistics, atomic invalid dates and full SQLite transfer: OK
+PASS management: separate kinds and exchange directions
+PASS management: exchange edit, replacement preservation, full-text/column filters and quoted multiline CSV
+PASS management: bulk/save_tasks, same-column values, row reorder
+PASS management: daily convergence, classification, overdue, unanswered and temporary-action statistics
+PASS management: invalid log, missing ID, stale revision and read-only rollback
+PASS management: archive/restore preserves logs and audited changes
+PASS management: PostgreSQL to SQLite transfer retains management records and exchanges
+PostgreSQL real MCP, full-text/column filters, hierarchy, milestone, master batch, actual completion date, revisions, read-only, batch rollback, empty-target guard, all audit rows, SQLite round-trip and ID sequences: OK
+Streamable HTTP real endpoint, PAT hashes/rotation/user binding, lifecycle, headers, limits, read-only, audit identity and concurrent conflicts: OK

@@ -1,0 +1,9 @@
+{
+  "base_commit": "637072f60d6ca1fb738ece2225e5f7c84656e368",
+  "state": "uncommitted management implementation",
+  "files": {
+    "target/kanban-build/release/yyproject.exe": "15f70b649a43ea63562688a9f26355576fb69efb56de4ad68aa0672b6ad18948",
+    "target/kanban-build/release/yyprojectw.exe": "e12b760c74f41c5032ed32531d723d28bdb78f85c57e336420e2aba849d7eaf6",
+    "demo/yyproject-management-demo.sqlite3": "198cf6256654095e2fab07917a08482192b8e3861c0b7e8a2ea6e3702db285b3"
+  }
+}

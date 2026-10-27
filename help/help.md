@@ -194,4 +194,19 @@ Streamable HTTPのJSON応答を使い、SSE配信は行いません。監査のa
 
 「バグ統計」「課題統計」はタスクのバーンダウンと同じ日次格子・休日色・曜日／日／月／年・太い線を使い、縦軸は未完了件数です。完了・中止・再オープンを履歴から集計します。原因・発生工程・検出工程・3種類の難易度は件数と割合の棒グラフにします。集計期間は「統計設定」で指定し、現在の絞り込みと現在の分類を使用します。検出日時がない旧課題は別枠の未記録件数とし、日付を推測しません。日時はUTCへ統一して集計します。
 
-MCPのcase_statisticsは読み取り専用で、kind（bug／issue）、from、to、任意のfilterを指定できます。project_changeのsave_taskはcase内の調査属性を保存し、状態履歴はサーバーが保持します。保存形式は5です。
+MCPのcase_statisticsは読み取り専用で、kind（bug／issue）、from、to、任意のfilterを指定できます。project_changeのsave_taskはcase内の調査属性を保存し、状態履歴はサーバーが保持します。保存形式は6です。
+
+
+## 他チームへの依頼・質問／暫定対応
+
+「編集 → 依頼・質問を追加／暫定対応を追加」で登録し、専用一覧と統計で管理します。依頼は種別、相手チーム（必須）・担当者、依頼日時、回答期限・回答・完了日時を記録します。行を右クリックして「やりとりを記録／編集／削除／確認」ができ、日時・方向・記録者・複数行本文を残せます。送受信・通知・添付はありません。
+
+暫定対応は発生理由（必須）、恒久対応のために必要なもの、実施内容、分類、検知・暫定・恒久対応日時と恒久実施予定日を記録します。実施日時には実施内容も必要です。恒久対応完了までは進行中、終了したら完了、不要なら中止とします。中止は恒久実施と区別します。
+
+両一覧はF2セル編集、Ctrl+C/V、同列選択のCtrl+D、複数行の属性一括変更、ID列ドラッグで行移動、列・行境界ドラッグで幅・高さ調整、列見出しの右クリックで値フィルター、Ctrl+Fで全文検索に対応します。件名や本文は個別編集です。ファイルメニューの専用CSV出力で列と条件を選べ、依頼のやりとり全文も出力できます。
+
+統計は日次の未完了・完了・中止と分類、期限超過、依頼の未回答と平均回答時間・方向別記録数、暫定未実施と平均暫定・恒久対応時間を表示します。日次格子・休日色・曜日／日／月／年はタスクと共通。集計期間は統計設定で指定し、日時はUTC、分類は現在値、件数は終了日末です。期限が終了日より前なら超過とします。工数には算入しません。
+
+MCPはproject_changeのsave_task/save_tasks（inquiry/workaround属性）、save_exchange/remove_exchange、move_task、remove_task/restore_taskを利用します。task_listはkind=inquiry/workaroundと検索・列条件、management_statisticsはkind/from/to/filter、csv_exportはcolumns/filterを指定します。CSVはcontent文字列として返し、クライアントで保存します。更新には最新のexpected_revisionが必要です。
+
+拡充デモはdemo/yyproject-management-demo.sqlite3（4案件114項目・やりとり18件）。コピーを開き4番目の案件を選択してください。yyproject --init-management-demo NEW_DATABASEで再生成できます。詳しくはdocs/user/management.mdとdemo/management-playbook.mdを参照してください。

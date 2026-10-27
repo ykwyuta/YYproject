@@ -26,9 +26,31 @@ const CASE_ATTRIBUTES: &[(&str, &str)] = &[
     ("case.temporary_due_at", "暫定対策予定日時"),
     ("case.permanent_due_at", "恒久対策予定日時"),
 ];
+const INQUIRY_ATTRIBUTES: &[(&str, &str)] = &[
+    ("assignee", "担当者"),
+    ("category", "カテゴリ"),
+    ("status", "状態"),
+    ("priority", "優先度"),
+    ("inquiry.kind", "依頼／質問"),
+    ("inquiry.target_team", "相手チーム"),
+    ("inquiry.contact", "相手担当者"),
+    ("inquiry.response_due_at", "回答期限"),
+    ("inquiry.answered_at", "回答日時"),
+    ("inquiry.closed_at", "完了・中止日時"),
+];
+const WORKAROUND_ATTRIBUTES: &[(&str, &str)] = &[
+    ("assignee", "担当者"),
+    ("category", "カテゴリ"),
+    ("status", "状態"),
+    ("priority", "優先度"),
+    ("workaround.classification", "暫定対応の分類"),
+    ("workaround.permanent_due_on", "恒久対応の実施予定日"),
+    ("workaround.applied_at", "暫定対応日時"),
+    ("workaround.permanent_at", "恒久対応日時"),
+];
 impl State {
     pub(super) fn selected_task_ids(&self) -> Vec<i64> {
-        if !matches!(self.view, 2 | 3 | 8) {
+        if !matches!(self.view, 2 | 3 | 8 | 11 | 12) {
             return vec![];
         }
         self.grid_rows()
@@ -77,7 +99,12 @@ impl State {
             .ok_or("プロジェクトを開いてください")?
             .clone();
         let is_case = matches!(self.view, 3 | 8);
-        let attributes = if is_case { CASE_ATTRIBUTES } else { ATTRIBUTES };
+        let attributes = match self.view {
+            11 => INQUIRY_ATTRIBUTES,
+            12 => WORKAROUND_ATTRIBUTES,
+            _ if is_case => CASE_ATTRIBUTES,
+            _ => ATTRIBUTES,
+        };
         let mut fields = Vec::new();
         for (i, (key, label)) in attributes.iter().enumerate() {
             fields.push(choice(
@@ -140,6 +167,10 @@ impl State {
                         )
                     })
                     .collect(),
+                "inquiry.kind" => vec![
+                    ("request".into(), "依頼".into()),
+                    ("question".into(), "質問".into()),
+                ],
                 _ => vec![],
             };
             fields.push(if options.is_empty() {
@@ -171,7 +202,12 @@ impl State {
             self.hwnd,
             &format!(
                 "選択行の属性を一括変更{}（{count}件）",
-                if is_case { " — バグ・課題" } else { "" }
+                match self.view {
+                    11 => " — 依頼・質問",
+                    12 => " — 暫定対応",
+                    _ if is_case => " — バグ・課題",
+                    _ => "",
+                }
             ),
             fields,
             move |v| validate(v).map(|_| ()).map_err(|e| e.to_string()),

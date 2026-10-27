@@ -2,6 +2,7 @@
 pub mod cases;
 mod storage;
 pub mod table;
+pub mod work;
 use chrono::{Datelike, Days, NaiveDate, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,8 @@ pub enum Kind {
     Task,
     Issue,
     Bug,
+    Inquiry,
+    Workaround,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,6 +94,8 @@ pub struct Master {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Task {
+    pub inquiry: Option<Box<work::Inquiry>>,
+    pub workaround: Option<Box<work::Workaround>>,
     pub case: Option<Box<cases::CaseData>>,
     pub parent: Option<i64>,
     pub milestone: bool,
@@ -185,6 +190,8 @@ impl Default for Task {
     fn default() -> Self {
         Self {
             case: None,
+            inquiry: None,
+            workaround: None,
             id: 0,
             parent: None,
             milestone: false,
@@ -244,13 +251,9 @@ pub struct TaskFilter {
 impl TaskFilter {
     pub fn validate(&self) -> Result<()> {
         if self.query.len() > 4096
-            || self.columns.len() > table::COLUMNS.len() + table::CASE_COLUMNS.len()
+            || self.columns.len() > table::all_columns().count()
             || self.columns.iter().any(|(key, value)| {
-                !table::COLUMNS
-                    .iter()
-                    .chain(table::CASE_COLUMNS)
-                    .any(|c| c.key == key)
-                    || value.len() > 1024 * 1024
+                !table::all_columns().any(|c| c.key == key) || value.len() > 1024 * 1024
             })
         {
             return Err(invalid("Invalid task filter column or search size"));
@@ -313,6 +316,14 @@ pub struct Project {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Change {
+    SaveExchange {
+        id: i64,
+        entry: work::Exchange,
+    },
+    RemoveExchange {
+        id: i64,
+        entry_id: i64,
+    },
     Rename {
         name: String,
         start: NaiveDate,
@@ -436,6 +447,9 @@ impl Project {
             return true;
         }
         let needle = filter.query.to_lowercase();
+        if work::matches_query(task, &needle) {
+            return true;
+        }
         if task.case.as_ref().is_some_and(|d| {
             serde_json::to_value(d).ok().is_some_and(|v| {
                 v.as_object().is_some_and(|o| {
@@ -480,6 +494,7 @@ impl Project {
     fn save_task(&mut self, task: &Task) -> Result<()> {
         let mut task = task.clone();
         let previous = self.tasks.iter().find(|t| t.id == task.id);
+        work::prepare(previous, &mut task)?;
         cases::prepare(previous, &mut task)?;
         if previous.is_some_and(|t| t.status == Status::Done)
             && !matches!(task.status, Status::Done | Status::Cancelled)
@@ -592,8 +607,9 @@ impl Project {
         let mut ids = BTreeSet::new();
         for t in &self.tasks {
             name(&t.title)?;
+            work::validate(t)?;
             if let Some(data) = &t.case {
-                if t.kind == Kind::Task {
+                if !matches!(t.kind, Kind::Bug | Kind::Issue) {
                     return Err(invalid("Tasks cannot contain investigation data"));
                 }
                 cases::validate(data, t.status)?;
@@ -903,6 +919,30 @@ impl Project {
     }
     fn change(&mut self, change: &Change) -> Result<()> {
         match change {
+            Change::SaveExchange { id, entry } => {
+                let task = self
+                    .tasks
+                    .iter_mut()
+                    .find(|t| t.id == *id)
+                    .ok_or_else(|| invalid("Inquiry does not exist"))?;
+                work::save_exchange(task, entry)?;
+            }
+            Change::RemoveExchange { id, entry_id } => {
+                let task = self
+                    .tasks
+                    .iter_mut()
+                    .find(|t| t.id == *id && !t.archived)
+                    .ok_or_else(|| invalid("Active inquiry does not exist"))?;
+                let data = task
+                    .inquiry
+                    .as_mut()
+                    .ok_or_else(|| invalid("Inquiry data is required"))?;
+                let count = data.exchanges.len();
+                data.exchanges.retain(|e| e.id != *entry_id);
+                if count == data.exchanges.len() {
+                    return Err(invalid("Exchange does not exist"));
+                }
+            }
             Change::Rename {
                 name,
                 start,
@@ -1166,8 +1206,8 @@ impl SqliteStore {
             if tables != 0 {
                 return Err(invalid("This SQLite file is not a yyproject database"));
             }
-            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=5; COMMIT;")?;
-        } else if application != 1499025482 || !matches!(version, 1..=5) {
+            c.execute_batch("BEGIN IMMEDIATE; CREATE TABLE projects(id INTEGER PRIMARY KEY,name TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))); CREATE TABLE audit(id INTEGER PRIMARY KEY,project_id INTEGER NOT NULL REFERENCES projects(id),at TEXT NOT NULL,actor TEXT NOT NULL,revision INTEGER NOT NULL,change TEXT NOT NULL CHECK(json_valid(change))); CREATE INDEX audit_project ON audit(project_id,id); PRAGMA application_id=1499025482; PRAGMA user_version=6; COMMIT;")?;
+        } else if application != 1499025482 || !matches!(version, 1..=6) {
             return Err(invalid("Unsupported yyproject database format"));
         }
         if !read_only {
@@ -1254,7 +1294,7 @@ impl SqliteStore {
                 "{\"operation\":\"create\"}"
             ],
         )?;
-        tx.pragma_update(None, "user_version", 5)?;
+        tx.pragma_update(None, "user_version", 6)?;
         tx.commit()?;
         Ok(p)
     }
@@ -1306,7 +1346,7 @@ impl SqliteStore {
                 serde_json::to_string(change)?
             ],
         )?;
-        tx.pragma_update(None, "user_version", 5)?;
+        tx.pragma_update(None, "user_version", 6)?;
         tx.commit()?;
         Ok(p)
     }

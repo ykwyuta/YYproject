@@ -67,7 +67,7 @@ impl State {
         } else {
             self.selected_task_ids().len()
         };
-        matches!(self.view, 2 | 3 | 7 | 8)
+        matches!(self.view, 2 | 3 | 7 | 8 | 11 | 12)
             && count >= 2
             && (self.grid.anchor.1.min(self.grid.current.1)
                 ..=self.grid.anchor.1.max(self.grid.current.1))
@@ -117,6 +117,10 @@ impl State {
     pub(super) fn grid_columns(&self) -> &'static [table::Column] {
         if self.view == 7 {
             table::master_columns(self.master_kind)
+        } else if self.view == 11 {
+            table::INQUIRY_COLUMNS
+        } else if self.view == 12 {
+            table::WORKAROUND_COLUMNS
         } else if matches!(self.view, 3 | 8) {
             table::CASE_COLUMNS
         } else {
@@ -543,7 +547,7 @@ impl State {
         if ctrl && key == b'F' as u16 {
             return Some(self.search_form());
         }
-        if !matches!(self.view, 2 | 3 | 7 | 8) {
+        if !matches!(self.view, 2 | 3 | 7 | 8 | 11 | 12) {
             return None;
         }
         let result = if ctrl && key == b'D' as u16 {
@@ -713,7 +717,7 @@ impl State {
             },
         ) {
             self.filter.query = v[0].clone();
-            if !matches!(self.view, 3 | 8) {
+            if !matches!(self.view, 3 | 8 | 11 | 12) {
                 self.view = 2;
                 self.grid.all_kinds = true;
             }
@@ -731,12 +735,16 @@ impl State {
             .project
             .as_ref()
             .ok_or("プロジェクトを選択してください")?;
-        let columns = if matches!(self.view, 3 | 8 | 9 | 10) {
-            table::CASE_COLUMNS
+        let columns = if matches!(self.view, 3 | 8 | 9 | 10 | 11 | 12 | 13 | 14) {
+            match self.list_kind() {
+                Kind::Inquiry => table::INQUIRY_COLUMNS,
+                Kind::Workaround => table::WORKAROUND_COLUMNS,
+                _ => table::CASE_COLUMNS,
+            }
         } else {
             table::COLUMNS
         };
-        let kind = if matches!(self.view, 3 | 8 | 9 | 10) {
+        let kind = if matches!(self.view, 3 | 8 | 9 | 10 | 11 | 12 | 13 | 14) {
             serde_json::to_value(self.list_kind())?
                 .as_str()
                 .unwrap()
@@ -808,6 +816,8 @@ impl State {
                     ("task".into(), "タスク".into()),
                     ("issue".into(), "課題".into()),
                     ("bug".into(), "バグ".into()),
+                    ("inquiry".into(), "依頼・質問".into()),
+                    ("workaround".into(), "暫定対応".into()),
                 ],
                 0,
             ),
@@ -845,6 +855,8 @@ impl State {
                 "task" => Some(Kind::Task),
                 "issue" => Some(Kind::Issue),
                 "bug" => Some(Kind::Bug),
+                "inquiry" => Some(Kind::Inquiry),
+                "workaround" => Some(Kind::Workaround),
                 _ => None,
             };
             let keys = columns

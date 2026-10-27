@@ -54,3 +54,7 @@ python tools/validate_operations.py target/release/yyproject.exe
 主案件のPRJ-03は確認待ち、SHT-02は差し戻しとして確認者と理由を設定しています。ISS-001は最優先・致命的で、SSH-02/SSH-03を対応タスクとして関連付けています。デモの課題は工数集計から除外しています。元DBをコピーし、課題の見積もりを増やしてもチャートの総工数が増えないこと、明示的な算入設定で増えることを試せます。
 
 [分類・工数・保管復元の第2次改善結果](../docs/history/verification/yyproject-improvements-2-2026-10-26.md)も参照してください。
+
+## 依頼・質問と暫定対応を含む拡充版
+
+`yyproject-management-demo.sqlite3` は従来の3案件90項目に4番目の案件24項目を追加した4案件114項目のデモです。やりとり18件、回答待ち・期限超過・暫定実施・恒久対応待ち・中止を含みます。[拡充版の操作シナリオ](management-playbook.md)を参照してください。再生成は `yyproject --init-management-demo NEW_DATABASE` です。既存の基本デモと利用中のDBは上書きしません。

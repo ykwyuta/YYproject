@@ -51,6 +51,16 @@ pub fn master_columns(kind: MasterKind) -> &'static [Column] {
     }
 }
 pub const BULK_TASK_KEYS: &[&str] = &[
+    "inquiry.kind",
+    "inquiry.target_team",
+    "inquiry.contact",
+    "inquiry.response_due_at",
+    "inquiry.answered_at",
+    "inquiry.closed_at",
+    "workaround.classification",
+    "workaround.applied_at",
+    "workaround.permanent_at",
+    "workaround.permanent_due_on",
     "case.closed_at",
     "case.temporary_due_at",
     "case.permanent_due_at",
@@ -313,7 +323,139 @@ pub const CASE_COLUMNS: &[Column] = &[
     COLUMNS[7],
     COLUMNS[18],
 ];
+pub const INQUIRY_COLUMNS: &[Column] = &[
+    COLUMNS[0],
+    COLUMNS[1],
+    COLUMNS[2],
+    COLUMNS[3],
+    COLUMNS[8],
+    COLUMNS[4],
+    Column {
+        key: "inquiry.kind",
+        label: "依頼／質問",
+        width: 110,
+        editable: true,
+    },
+    Column {
+        key: "inquiry.target_team",
+        label: "相手チーム",
+        width: 190,
+        editable: true,
+    },
+    Column {
+        key: "inquiry.contact",
+        label: "相手担当者",
+        width: 180,
+        editable: true,
+    },
+    Column {
+        key: "inquiry.requested_at",
+        label: "依頼・質問日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "inquiry.response_due_at",
+        label: "回答期限",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "inquiry.answered_at",
+        label: "回答日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "inquiry.closed_at",
+        label: "完了・中止日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "inquiry.exchange_count",
+        label: "記録件数",
+        width: 100,
+        editable: false,
+    },
+    Column {
+        key: "inquiry.exchange_log",
+        label: "やりとり記録",
+        width: 460,
+        editable: false,
+    },
+    COLUMNS[14],
+    COLUMNS[17],
+];
+pub const WORKAROUND_COLUMNS: &[Column] = &[
+    COLUMNS[0],
+    COLUMNS[1],
+    COLUMNS[2],
+    COLUMNS[3],
+    COLUMNS[8],
+    COLUMNS[4],
+    Column {
+        key: "workaround.classification",
+        label: "暫定対応の分類",
+        width: 190,
+        editable: true,
+    },
+    Column {
+        key: "workaround.reason",
+        label: "発生理由",
+        width: 320,
+        editable: true,
+    },
+    Column {
+        key: "workaround.permanent_requirements",
+        label: "恒久対応のために必要なもの",
+        width: 360,
+        editable: true,
+    },
+    Column {
+        key: "workaround.action",
+        label: "実施した暫定対応内容",
+        width: 360,
+        editable: true,
+    },
+    Column {
+        key: "workaround.detected_at",
+        label: "検知日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "workaround.applied_at",
+        label: "暫定対応日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "workaround.permanent_at",
+        label: "恒久対応日時",
+        width: 240,
+        editable: true,
+    },
+    Column {
+        key: "workaround.permanent_due_on",
+        label: "恒久対応の実施予定日",
+        width: 240,
+        editable: true,
+    },
+    COLUMNS[14],
+    COLUMNS[17],
+];
+pub fn all_columns() -> impl Iterator<Item = &'static Column> {
+    COLUMNS
+        .iter()
+        .chain(CASE_COLUMNS)
+        .chain(INQUIRY_COLUMNS)
+        .chain(WORKAROUND_COLUMNS)
+}
 pub fn value(p: &Project, t: &Task, key: &str) -> String {
+    if key.starts_with("inquiry.") || key.starts_with("workaround.") {
+        return crate::work::value(t, key);
+    }
     if let Some(key) = key.strip_prefix("case.") {
         let Some(d) = &t.case else {
             return String::new();
@@ -352,6 +494,8 @@ pub fn value(p: &Project, t: &Task, key: &str) -> String {
             Kind::Task => "タスク",
             Kind::Issue => "課題",
             Kind::Bug => "バグ",
+            Kind::Inquiry => "依頼・質問",
+            Kind::Workaround => "暫定対応",
         }
         .into(),
         "include_in_effort" => if t.include_in_effort {
@@ -396,13 +540,14 @@ fn enum_value<T: Copy + Serialize>(
         .ok_or_else(|| invalid(format!("Unknown choice: {text}")))
 }
 pub fn set_value(p: &Project, t: &mut Task, key: &str, text: &str) -> Result<()> {
-    let column = COLUMNS
-        .iter()
-        .chain(CASE_COLUMNS)
+    let column = all_columns()
         .find(|c| c.key == key)
         .ok_or_else(|| invalid("Unknown column"))?;
     if !column.editable {
         return Err(invalid("Read-only column"));
+    }
+    if key.starts_with("inquiry.") || key.starts_with("workaround.") {
+        return crate::work::set_value(t, key, text);
     }
     if let Some(key) = key.strip_prefix("case.") {
         if t.kind == Kind::Task {
@@ -480,6 +625,8 @@ pub fn set_value(p: &Project, t: &mut Task, key: &str, text: &str) -> Result<()>
             "タスク" | "task" => "task".into(),
             "課題" | "issue" => "issue".into(),
             "バグ" | "bug" => "bug".into(),
+            "依頼・質問" | "inquiry" => "inquiry".into(),
+            "暫定対応" | "workaround" => "workaround".into(),
             _ => return Err(invalid("Unknown task kind")),
         },
         "category" => reference(MasterKind::Category)?,
@@ -646,9 +793,7 @@ pub fn export_csv(p: &Project, filter: &TaskFilter, keys: &[String]) -> Result<S
             if !seen.insert(key) {
                 return Err(invalid("Duplicate CSV column"));
             }
-            COLUMNS
-                .iter()
-                .chain(CASE_COLUMNS)
+            all_columns()
                 .find(|c| c.key == key)
                 .ok_or_else(|| invalid("Unknown CSV column"))
         })
@@ -737,6 +882,11 @@ pub fn export_jira_csv(
         .collect::<BTreeMap<_, _>>();
     let mut included = BTreeSet::new();
     for t in p.tasks.iter().filter(|t| p.matches_filter(filter, t)) {
+        if matches!(t.kind, Kind::Inquiry | Kind::Workaround) {
+            return Err(invalid(
+                "Jira export supports tasks, bugs and issues. Select a kind filter or use standard CSV for inquiry/workaround records.",
+            ));
+        }
         let mut current = Some(t.id);
         while let Some(id) = current {
             if !included.insert(id) {

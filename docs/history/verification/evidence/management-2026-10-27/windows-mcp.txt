@@ -1,0 +1,11 @@
+Read-only archive impact and actual MCP archive/filter/restore: OK
+Read-only preview and composed filters, invalid arguments: OK
+Bundled demo: MCP project and issues: OK
+MCP stdio initialize, discovery, Unicode task persistence, conflict, audit, read-only: OK
+Real MCP bug/issue isolation, investigation fields, UTC dates, daily convergence, classifications, readonly statistics, atomic invalid dates and full SQLite transfer: OK
+PASS management: separate kinds and exchange directions
+PASS management: exchange edit, replacement preservation, full-text/column filters and quoted multiline CSV
+PASS management: bulk/save_tasks, same-column values, row reorder
+PASS management: daily convergence, classification, overdue, unanswered and temporary-action statistics
+PASS management: invalid log, missing ID, stale revision and read-only rollback
+PASS management: archive/restore preserves logs and audited changes

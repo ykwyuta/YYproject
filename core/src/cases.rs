@@ -69,7 +69,7 @@ pub(crate) fn prepare(old: Option<&Task>, task: &mut Task) -> Result<()> {
             "Recorded bugs/issues cannot change kind; create a linked record instead",
         ));
     }
-    if task.kind == Kind::Task {
+    if !matches!(task.kind, Kind::Bug | Kind::Issue) {
         if task.case.is_some() {
             return Err(invalid("Investigation data requires bug or issue kind"));
         }
@@ -232,7 +232,7 @@ pub fn statistics(
     filter: &TaskFilter,
 ) -> Result<Statistics> {
     filter.validate()?;
-    if kind == Kind::Task
+    if !matches!(kind, Kind::Bug | Kind::Issue)
         || from > to
         || (to - from).num_days() > 3660
         || from.year() < 1

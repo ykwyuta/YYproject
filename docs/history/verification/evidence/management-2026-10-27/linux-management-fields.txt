@@ -1,0 +1,8 @@
+PASS management: separate kinds and exchange directions
+PASS management: exchange edit, replacement preservation, full-text/column filters and quoted multiline CSV
+PASS management: bulk/save_tasks, same-column values, row reorder
+PASS management: daily convergence, classification, overdue, unanswered and temporary-action statistics
+PASS management: invalid log, missing ID, stale revision and read-only rollback
+PASS management: archive/restore preserves logs and audited changes
+PASS management: all management fields, assignee batch, completion dates and filtered response/temporary/permanent means
+PASS management: PostgreSQL to SQLite transfer retains management records and exchanges

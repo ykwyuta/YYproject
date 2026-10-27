@@ -33,6 +33,7 @@ mod grid;
 mod master_grid;
 mod sizing;
 mod timeline;
+mod work;
 use grid::GridState;
 use timeline::Timeline;
 #[derive(Clone, Copy)]
@@ -53,7 +54,7 @@ impl CardDrag {
         )
     }
 }
-const VIEWS: [&str; 11] = [
+const VIEWS: [&str; 15] = [
     "カンバン",
     "ガント",
     "タスク一覧",
@@ -65,6 +66,10 @@ const VIEWS: [&str; 11] = [
     "バグ一覧",
     "バグ統計",
     "課題統計",
+    "依頼・質問一覧",
+    "暫定対応一覧",
+    "依頼・質問統計",
+    "暫定対応統計",
 ];
 fn network_family(p: &Project, selected: Option<i64>) -> std::collections::BTreeSet<i64> {
     let Some(id) = selected else {
@@ -621,8 +626,18 @@ fn form(
             )
             .ok()?;
             send(t, WM_SETFONT, font.0 as usize, 0);
-            let labels = if title.starts_with("選択行の属性") && title.contains("バグ・課題")
+            let labels = if title.starts_with("選択行の属性") && title.contains("依頼・質問")
             {
+                vec![
+                    "担当・分類",
+                    "状態・優先度",
+                    "依頼先",
+                    "相手・回答期限",
+                    "回答・完了日時",
+                ]
+            } else if title.starts_with("選択行の属性") && title.contains("暫定対応") {
+                vec!["担当・分類", "状態・優先度", "分類・恒久予定", "実施日時"]
+            } else if title.starts_with("選択行の属性") && title.contains("バグ・課題") {
                 vec![
                     "担当・分類",
                     "状態・優先度",
@@ -634,6 +649,25 @@ fn form(
                 ]
             } else if title.starts_with("選択行の属性") {
                 vec!["担当・分類", "状態・優先度", "予定日程", "完了日・進捗"]
+            } else if title.starts_with("依頼・質問管理") {
+                vec![
+                    "基本情報",
+                    "相手・種別",
+                    "回答・完了日時",
+                    "説明",
+                    "関連タスク",
+                ]
+            } else if title.starts_with("暫定対応管理") {
+                vec![
+                    "基本情報",
+                    "分類・日程",
+                    "発生理由",
+                    "恒久対応の条件",
+                    "暫定対応の内容",
+                    "関連・説明",
+                ]
+            } else if title.starts_with("やりとり記録") {
+                vec!["記録情報", "本文"]
             } else if title.starts_with("バグ管理") || title.starts_with("課題管理") {
                 vec![
                     "基本情報",
@@ -895,7 +929,7 @@ fn task_values(v: &[String]) -> std::result::Result<(), String> {
 }
 impl State {
     fn hit_task(&self, x: i32, y: i32) -> Option<i64> {
-        if matches!(self.view, 2 | 3 | 7 | 8) {
+        if matches!(self.view, 2 | 3 | 7 | 8 | 11 | 12) {
             return self
                 .grid_cell(POINT { x, y })
                 .and_then(|(row, _)| self.grid_rows().get(row).map(|r| r.0));
@@ -921,7 +955,7 @@ impl State {
     }
     fn task_context_menu(&mut self, mut point: POINT) -> Result<()> {
         self.cancel_drag();
-        if !matches!(self.view, 0..=4 | 8) {
+        if !matches!(self.view, 0..=4 | 8 | 11 | 12) {
             return Ok(());
         }
         unsafe {
@@ -943,14 +977,14 @@ impl State {
             } else {
                 let mut client = point;
                 let _ = ScreenToClient(self.hwnd, &mut client);
-                if matches!(self.view, 2 | 3 | 8)
+                if matches!(self.view, 2 | 3 | 8 | 11 | 12)
                     && client.y >= self.body.top
                     && client.y < self.body.top + self.px(30)
                 {
                     return self.column_filter_menu(client);
                 }
                 let clicked = self.hit_task(client.x, client.y);
-                if matches!(self.view, 2 | 3 | 8)
+                if matches!(self.view, 2 | 3 | 8 | 11 | 12)
                     && clicked.is_some_and(|id| !self.selected_task_ids().contains(&id))
                 {
                     self.select_grid_point(client, false);
@@ -962,7 +996,9 @@ impl State {
                 return Ok(());
             };
             let current = task.status;
-            let multi = matches!(self.view, 2 | 3 | 8) && self.selected_task_ids().len() > 1;
+            let multi =
+                matches!(self.view, 2 | 3 | 8 | 11 | 12) && self.selected_task_ids().len() > 1;
+            let can_record = task.kind == Kind::Inquiry && !task.archived && !multi;
             let can_add_child = task.kind == Kind::Task && !task.archived && !multi;
             invalidate(self.hwnd);
             let popup = CreatePopupMenu()?;
@@ -980,7 +1016,17 @@ impl State {
                     121,
                     w!("子タスクを追加…"),
                 )?;
-                if matches!(self.view, 2 | 3 | 8) {
+                if can_record {
+                    for (id, caption) in [
+                        (129, "やりとりを記録…"),
+                        (133, "やりとり記録を編集…"),
+                        (134, "やりとり記録を削除…"),
+                        (135, "やりとり記録を確認…"),
+                    ] {
+                        AppendMenuW(popup, MF_STRING, id, &HSTRING::from(caption))?;
+                    }
+                }
+                if matches!(self.view, 2 | 3 | 8 | 11 | 12) {
                     AppendMenuW(popup, MF_STRING, 122, w!("選択行の属性を一括変更…"))?;
                     AppendMenuW(
                         popup,
@@ -1586,6 +1632,13 @@ impl State {
             .find(|t| Some(t.id) == self.selected)
     }
     fn edit_task(&mut self, new: bool, issue: bool) -> Result<()> {
+        if !new
+            && self
+                .task()
+                .is_some_and(|t| matches!(t.kind, Kind::Inquiry | Kind::Workaround))
+        {
+            return self.edit_work(false, self.task().unwrap().kind);
+        }
         if issue || (!new && self.task().is_some_and(|t| t.kind != Kind::Task)) {
             return self.edit_case(
                 new,
@@ -2093,6 +2146,16 @@ impl State {
             430 => self.timeline_form()?,
             440 => self.case_range_form()?,
             124 => self.edit_case(true, Kind::Bug)?,
+            127 => self.edit_work(true, Kind::Inquiry)?,
+            128 => self.edit_work(true, Kind::Workaround)?,
+            129 => self.exchange_form(true)?,
+            133 => self.exchange_form(false)?,
+            134 => self.remove_exchange_form()?,
+            135 => self.show_exchange_log()?,
+            136 | 137 => {
+                self.command(if id == 136 { 211 } else { 212 })?;
+                self.export_csv_form()?;
+            }
             125 | 126 => {
                 self.command(if id == 125 { 208 } else { 203 })?;
                 self.export_csv_form()?;
@@ -2113,7 +2176,9 @@ impl State {
             112 => {
                 if self.view == 7 {
                     self.master(false)?;
-                } else if matches!(self.view, 2 | 3 | 8) && self.selected_task_ids().len() > 1 {
+                } else if matches!(self.view, 2 | 3 | 8 | 11 | 12)
+                    && self.selected_task_ids().len() > 1
+                {
                     self.bulk_edit_form()?;
                 } else {
                     self.edit_task(false, false)?;
@@ -2171,7 +2236,7 @@ impl State {
                     "yyproject-help",
                 )?;
             }
-            200..=210 => {
+            200..=214 => {
                 self.view = id - 200;
                 self.grid.all_kinds = false;
                 self.grid.selection = false;
@@ -2309,7 +2374,7 @@ impl State {
                             .sum::<i32>()
                     }) + self.px(96),
                 ),
-                2 | 3 | 7 | 8 => (
+                2 | 3 | 7 | 8 | 11 | 12 => (
                     self.px((0..self.grid_columns().len())
                         .map(|c| self.grid_width(c))
                         .sum()),
@@ -2331,7 +2396,7 @@ impl State {
                         .map_or(r.right, |p| charts::width(p, self.dpi).max(r.right)),
                     self.body.bottom - self.body.top,
                 ),
-                9 | 10 => self.case_chart_size(),
+                9 | 10 | 13 | 14 => self.case_chart_size(),
                 _ => (r.right, self.body.bottom - self.body.top),
             };
             self.x = self.x.clamp(0, (self.content.0 - self.body.right).max(0));
@@ -2395,7 +2460,7 @@ impl State {
                             .iter()
                             .filter(|m| m.kind == self.master_kind)
                             .count()
-                    } else if matches!(self.view, 2 | 3 | 8) {
+                    } else if matches!(self.view, 2 | 3 | 8 | 11 | 12) {
                         self.grid_rows().len()
                     } else {
                         p.tasks
@@ -2571,7 +2636,7 @@ impl State {
                     );
                 }
             }
-            2 | 3 | 8 => {
+            2 | 3 | 8 | 11 | 12 => {
                 let selected_rows = self.selected_task_ids();
                 let list_kind = self.list_kind();
                 for (i, (t, depth)) in p
@@ -2769,7 +2834,7 @@ impl State {
                 self.paint_masters(dc, &mut hits);
                 self.hits.extend(hits);
             }
-            9 | 10 => self.paint_case_statistics(dc),
+            9 | 10 | 13 | 14 => self.paint_case_statistics(dc),
             _ => {}
         }
         if let Some(drag) = self.drag.filter(|d| d.active && self.view == 0) {
@@ -2844,7 +2909,7 @@ impl State {
                 );
             }
         }
-        if matches!(self.view, 2 | 3 | 8)
+        if matches!(self.view, 2 | 3 | 8 | 11 | 12)
             && let Some(drag) = self.drag.filter(|d| d.active)
         {
             let target = self
@@ -2892,6 +2957,8 @@ fn menu() -> windows::core::Result<HMENU> {
                     (104, "プロジェクトをCSV出力…".into()),
                     (125, "バグ一覧をCSV出力…".into()),
                     (126, "課題一覧をCSV出力…".into()),
+                    (136, "依頼・質問一覧をCSV出力…".into()),
+                    (137, "暫定対応一覧をCSV出力…".into()),
                     (109, "Jira用CSVを出力…".into()),
                     (105, "PostgreSQLへ接続（環境変数）".into()),
                     (107, "現在のSQLiteからPostgreSQLへ移行…".into()),
@@ -2906,6 +2973,12 @@ fn menu() -> windows::core::Result<HMENU> {
                     (121, "選択したタスクの子タスクを追加…".into()),
                     (111, "課題を追加".into()),
                     (124, "バグを追加".into()),
+                    (127, "依頼・質問を追加…".into()),
+                    (128, "暫定対応を追加…".into()),
+                    (129, "やりとりを記録…".into()),
+                    (133, "やりとり記録を編集…".into()),
+                    (134, "やりとり記録を削除…".into()),
+                    (135, "やりとり記録を表示…".into()),
                     (112, "選択項目を編集".into()),
                     (122, "選択行の属性を一括変更…".into()),
                     (123, "選択範囲を下方向にコピー\tCtrl+D".into()),
@@ -2960,10 +3033,7 @@ fn menu() -> windows::core::Result<HMENU> {
                 ],
             ),
             ("ガント設定", vec![(430, "表示起点・列幅・稲妻線…".into())]),
-            (
-                "統計設定",
-                vec![(440, "バグ・課題の集計期間（UTC日付）…".into())],
-            ),
+            ("統計設定", vec![(440, "集計期間（UTC日付）…".into())]),
             ("ヘルプ", vec![(140, "使い方 / MCP設定".into())]),
         ];
         for (title, items) in groups {
@@ -3135,15 +3205,17 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     if s.begin_resize(POINT { x, y }) {
                         return Ok(());
                     }
-                    if matches!(s.view, 2 | 3 | 8) && GetKeyState(VK_CONTROL.0 as i32) < 0 {
+                    if matches!(s.view, 2 | 3 | 8 | 11 | 12) && GetKeyState(VK_CONTROL.0 as i32) < 0
+                    {
                         s.toggle_grid_row(POINT { x, y });
                         return Ok(());
                     }
                     s.selected = s.hit_task(x, y);
-                    if matches!(s.view, 2 | 3 | 7 | 8) {
+                    if matches!(s.view, 2 | 3 | 7 | 8 | 11 | 12) {
                         s.select_grid_point(POINT { x, y }, GetKeyState(VK_SHIFT.0 as i32) < 0);
                     }
-                    if (s.view == 0 || (matches!(s.view, 2 | 3 | 8) && s.grid.current.1 == 0))
+                    if (s.view == 0
+                        || (matches!(s.view, 2 | 3 | 8 | 11 | 12) && s.grid.current.1 == 0))
                         && let Some((r, id)) = s.hits.iter().find(|(_, id)| Some(*id) == s.selected)
                     {
                         s.drag = Some(CardDrag {
@@ -3171,7 +3243,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         x: l.0 as u16 as i16 as i32,
                         y: (l.0 >> 16) as u16 as i16 as i32,
                     };
-                    if matches!(s.view, 2 | 3 | 8)
+                    if matches!(s.view, 2 | 3 | 8 | 11 | 12)
                         && let Some(drag) = drag.filter(|d| d.active)
                         && inside(s.body, point.x, point.y)
                     {
@@ -3252,7 +3324,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                 }
                 GRID_FINISH => s.finish_grid_message(w.0 == 1, l.0 != 0),
                 WM_LBUTTONDBLCLK => {
-                    if matches!(s.view, 2 | 3 | 7 | 8) {
+                    if matches!(s.view, 2 | 3 | 7 | 8 | 11 | 12) {
                         s.begin_cell_edit(None)
                     } else {
                         s.command(112)
@@ -3263,7 +3335,7 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     y: (l.0 >> 16) as u16 as i16 as i32,
                 }),
                 WM_CHAR
-                    if matches!(s.view, 2 | 3 | 7 | 8)
+                    if matches!(s.view, 2 | 3 | 7 | 8 | 11 | 12)
                         && w.0 >= 32
                         && GetKeyState(VK_CONTROL.0 as i32) >= 0 =>
                 {

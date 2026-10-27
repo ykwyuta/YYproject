@@ -19,7 +19,7 @@ impl State {
             return None;
         }
         let tolerance = self.px(4);
-        if matches!(self.view, 2 | 3 | 7 | 8) {
+        if matches!(self.view, 2 | 3 | 7 | 8 | 11 | 12) {
             if point.y < self.body.top + self.px(30) {
                 let mut x = self.body.left - self.x;
                 for col in 0..self.grid_columns().len() {

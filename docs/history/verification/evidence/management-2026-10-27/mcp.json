@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-10-27T02:16:29.887721+00:00",
+  "executable_sha256": "15f70b649a43ea63562688a9f26355576fb69efb56de4ad68aa0672b6ad18948",
+  "transport": "stdio",
+  "checks": [
+    "separate kinds and exchange directions",
+    "exchange edit, replacement preservation, full-text/column filters and quoted multiline CSV",
+    "bulk/save_tasks, same-column values, row reorder",
+    "daily convergence, classification, overdue, unanswered and temporary-action statistics",
+    "invalid log, missing ID, stale revision and read-only rollback",
+    "archive/restore preserves logs and audited changes",
+    "all management fields, assignee batch, completion dates and filtered response/temporary/permanent means",
+    "expanded demo CLI: four projects, 114 items and 18 exchange records"
+  ],
+  "result": "passed"
+}

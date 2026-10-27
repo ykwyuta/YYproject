@@ -627,11 +627,12 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
     report.push(
         "Native reopening/progress and schedule cancel/confirmation/read-only details: OK".into(),
     );
-    report.push("Native task/master forms, AI refresh, multiline/master preservation, project switching, eleven views at two sizes, real client hit tests and kanban drag: OK".into());
+    report.push("Native task/master forms, AI refresh, multiline/master preservation, project switching, fifteen views at two sizes, real client hit tests and kanban drag: OK".into());
     report.push("Kanban pointer preview, target column, timer-driven edge scrolling, persisted drop, click threshold, same-column no-op, Escape/capture/outside/right-click/deactivation cancellation: OK".into());
     report.push("Native task context menu: edit and five status actions, popup cancellation without saving: OK".into());
     super::advanced::run(h, directory, &mut report)?;
     super::cases::smoke_test(h, directory, &mut report)?;
+    super::work::smoke_test(h, directory, &mut report)?;
     let demo_path = directory.join("yyproject-demo.sqlite3");
     std::fs::copy(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo/yyproject-demo.sqlite3"),
@@ -787,6 +788,7 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
         report.push("Native classification/review fields, pending filter, archive cancel/confirm, archived graph/gantt/chart, archive menu and restore: OK".into());
         Ok(())
     })?;
+    super::work::demo_smoke(h, directory, &mut report)?;
     let errors = SMOKE_ERRORS.with(|e| e.borrow().clone());
     if !errors.is_empty() {
         return Err(errors.join("\n").into());

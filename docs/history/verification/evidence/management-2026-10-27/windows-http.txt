@@ -1,0 +1,1 @@
+Streamable HTTP real endpoint, PAT hashes/rotation/user binding, lifecycle, headers, limits, read-only, audit identity and concurrent conflicts: OK

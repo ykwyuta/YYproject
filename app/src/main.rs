@@ -1,5 +1,6 @@
 mod demo;
 mod http_server;
+mod management_demo;
 mod mcp;
 mod pat;
 use std::{io, path::Path};
@@ -128,6 +129,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut source = Store::connect_postgres(&url, true)?;
             source.export_sqlite(Path::new(&args[1]))?;
             println!("Exported PostgreSQL data to SQLite");
+        }
+        Some("--init-management-demo") => {
+            if args.len() != 2 {
+                return Err("Usage: yyproject --init-management-demo NEW_DATABASE".into());
+            }
+            management_demo::create(Path::new(&args[1]))?;
+            println!("Created management demo");
         }
         Some("--init-demo") => {
             if args.len() != 2 {

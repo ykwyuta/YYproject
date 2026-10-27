@@ -31,3 +31,5 @@ Jira管理者の「設定 → システム → 外部システムのインポー
 Jiraの設定や必須カスタム項目によって追加の列・値が必要になる場合は、保存したCSVに追記してください。Data Centerや別の取り込み画面では項目名・階層の扱いが異なるため、この手順の対象には含めません。
 
 仕様の根拠: [AtlassianのCSV取り込み説明](https://support.atlassian.com/jira-cloud-administration/docs/import-data-from-a-csv-file/)、[親子関係とIssue ID／Parentの対応](https://support.atlassian.com/jira/kb/keep-issue-parent-child-mapping-during-csv-import-to-jira-cloud/)。ファイル構造とGUIからの生成は試験していますが、実際のJiraサーバーへの取り込みは未検証です。
+
+依頼・質問／暫定対応はJira用の課題タイプへ自動変換しません。これらが対象に入る場合は出力を拒否するため、種類をタスク・バグ・課題のいずれかに絞るか、標準CSVを使ってください。

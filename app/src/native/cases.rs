@@ -6,6 +6,8 @@ impl State {
         match self.view {
             3 | 10 => Kind::Issue,
             8 | 9 => Kind::Bug,
+            11 | 13 => Kind::Inquiry,
+            12 | 14 => Kind::Workaround,
             _ => Kind::Task,
         }
     }
@@ -168,7 +170,7 @@ impl State {
                     p.tasks
                         .iter()
                         .filter(|t| t.kind == self.list_kind() && !t.archived)
-                        .filter_map(|t| t.case.as_ref()?.detected_at.map(|d| d.date_naive()))
+                        .filter_map(|t| yy_project::work::opened_at(t).map(|d| d.date_naive()))
                         .min()
                 })
                 .unwrap_or(today);
@@ -179,7 +181,7 @@ impl State {
         let (first, last) = self.case_dates();
         if let Some(v) = form(
             self.hwnd,
-            "バグ・課題統計 — 集計期間（UTCの日付）",
+            "統計 — 集計期間（UTCの日付）",
             vec![field("開始日", first, 0), field("終了日", last, 0)],
             |v| {
                 let a = date(&v[0])?;
@@ -204,14 +206,18 @@ impl State {
             .as_ref()
             .ok_or_else(|| yy_project::Error::Invalid("プロジェクトを開いてください".into()))?;
         let (a, b) = self.case_dates();
+        if matches!(self.list_kind(), Kind::Inquiry | Kind::Workaround) {
+            return Ok(self.management_statistics()?.convergence);
+        }
         yy_project::cases::statistics(p, self.list_kind(), a, b, &self.filter)
     }
     pub(super) fn case_chart_size(&self) -> (i32, i32) {
         let (a, b) = self.case_dates();
+        let management = self.management_statistics().ok();
         let rows = self
             .case_statistics()
             .map(|s| {
-                panels(&s)
+                panels(&s, management.as_ref())
                     .iter()
                     .map(|(_, m)| m.len().max(1) as i32 * 30 + 50)
                     .sum::<i32>()
@@ -232,6 +238,7 @@ impl State {
         let Some(p) = &self.project else {
             return;
         };
+        let management = self.management_statistics().ok();
         let a = self.body;
         let black = COLORREF(0x282828);
         let left = a.left + self.px(12) - self.x;
@@ -241,7 +248,13 @@ impl State {
             rect(left, top, self.content.0, self.px(30)),
             &format!(
                 "{}：{}件 / 未完了{} / 完了{} / 中止{} / 日時未記録{}（別枠）",
-                if self.view == 9 { "バグ" } else { "課題" },
+                match self.list_kind() {
+                    Kind::Bug => "バグ",
+                    Kind::Issue => "課題",
+                    Kind::Inquiry => "依頼・質問",
+                    Kind::Workaround => "暫定対応",
+                    _ => "タスク",
+                },
                 stats.total,
                 stats.open,
                 stats.resolved,
@@ -253,12 +266,41 @@ impl State {
         label(
             dc,
             rect(left, top + self.px(32), self.content.0, self.px(28)),
-            &format!(
-                "平均解決時間 {} / 集計期間・UTC日付は「統計設定 → バグ・課題の集計期間」で変更",
-                stats
-                    .mean_resolution_hours
-                    .map_or("未算出".into(), |n| format!("{n:.1}時間"))
-            ),
+            &if let Some(extra) = &management {
+                if self.list_kind() == Kind::Inquiry {
+                    format!(
+                        "未回答{} / 期限超過{} / 平均回答{} / 期間内の記録：こちら{}・相手{}・メモ{}",
+                        extra.unanswered,
+                        extra.overdue,
+                        extra
+                            .mean_answer_hours
+                            .map_or("未算出".into(), |n| format!("{n:.1}h")),
+                        extra.outgoing,
+                        extra.incoming,
+                        extra.notes
+                    )
+                } else {
+                    format!(
+                        "暫定未実施{} / 恒久予定超過{} / 平均暫定対応{} / 平均恒久対応{}",
+                        extra.not_applied,
+                        extra.overdue,
+                        extra
+                            .mean_temporary_hours
+                            .map_or("未算出".into(), |n| format!("{n:.1}h")),
+                        extra
+                            .convergence
+                            .mean_resolution_hours
+                            .map_or("未算出".into(), |n| format!("{n:.1}h"))
+                    )
+                }
+            } else {
+                format!(
+                    "平均解決時間 {} / 集計期間・UTC日付は「統計設定」で変更",
+                    stats
+                        .mean_resolution_hours
+                        .map_or("未算出".into(), |n| format!("{n:.1}時間"))
+                )
+            },
             black,
         );
         let mut chart = p.clone();
@@ -294,11 +336,11 @@ impl State {
         label(
             dc,
             rect(left, y, self.content.0, self.px(28)),
-            "以下は終了日時点までに検出した対象の分類（現時点の属性・現在の絞り込みを使用）。未完了件数には再オープンを反映。",
+            "以下は集計終了日までの対象の分類（現時点の属性・現在の絞り込みを使用）。未完了件数には再オープンを反映。",
             black,
         );
         y += self.px(35);
-        for (title, map) in panels(&stats) {
+        for (title, map) in panels(&stats, management.as_ref()) {
             label(dc, rect(left, y, self.px(960), self.px(30)), title, black);
             y += self.px(32);
             let mut values: Vec<_> = map.iter().collect();
@@ -343,15 +385,33 @@ impl State {
         }
     }
 }
-fn panels(s: &yy_project::cases::Statistics) -> [(&'static str, &BTreeMap<String, usize>); 6] {
-    [
-        ("原因分類（件数順）", &s.causes),
-        ("発生工程", &s.occurrence_phases),
-        ("検出工程", &s.detection_phases),
-        ("暫定対策難易度", &s.temporary_difficulties),
-        ("恒久対策難易度", &s.permanent_difficulties),
-        ("検知難易度", &s.detection_difficulties),
-    ]
+fn panels<'a>(
+    s: &'a yy_project::cases::Statistics,
+    management: Option<&'a yy_project::work::Statistics>,
+) -> Vec<(&'static str, &'a BTreeMap<String, usize>)> {
+    if let Some(m) = management {
+        if s.kind == Kind::Inquiry {
+            vec![
+                ("相手チーム（件数順）", &s.causes),
+                ("依頼／質問", &m.classifications),
+                ("状態", &m.states),
+            ]
+        } else {
+            vec![
+                ("暫定対応の分類（件数順）", &m.classifications),
+                ("状態", &m.states),
+            ]
+        }
+    } else {
+        vec![
+            ("原因分類（件数順）", &s.causes),
+            ("発生工程", &s.occurrence_phases),
+            ("検出工程", &s.detection_phases),
+            ("暫定対策難易度", &s.temporary_difficulties),
+            ("恒久対策難易度", &s.permanent_difficulties),
+            ("検知難易度", &s.detection_difficulties),
+        ]
+    }
 }
 
 pub(super) fn smoke_test(

@@ -6,7 +6,7 @@
 
 ## 保存
 
-SQLite 3はrusqliteのbundled機能で同梱。application_idは1499025482、user_versionは5（旧形式1〜4も読込可能）。他アプリのDBや未知の版は拒否する。WALとforeign_keysを有効にする。
+SQLite 3はrusqliteのbundled機能で同梱。application_idは1499025482、user_versionは6（旧形式1〜5も読込可能）。他アプリのDBや未知の版は拒否する。WALとforeign_keysを有効にする。
 
 `projects(id,name,revision,document)` はプロジェクト集約をJSONとして保存する。タスク・マスタ・依存関係・日ごとの集計を1トランザクションで検証・保存するため、途中状態を読ませない。`audit(id,project_id,at,actor,revision,change)` にコミットと同じトランザクションで操作を追記する。監査時刻はUTC、日単位の進捗は実行環境のローカル日付を使う。
 
@@ -41,11 +41,11 @@ cargo build --workspace --locked
 python tools/test_mcp.py target/debug/yyproject.exe
 ```
 
-Linuxでは実行ファイルの.exeを外す。GUIはWindows専用で、Linuxの成功をGUIの検証済みとは扱わない。Windowsの `yyprojectw --ui-smoke-test NEW_DIRECTORY` は専用DB・所有するウィンドウだけを使い、入力ダイアログ・マスタ・11画面・サイズ変更・カンバンドラッグを検証する。ディレクトリ内に報告と実描画関数によるBMPを出力する。完了判定はモデル内容と描画範囲。表示待ちの固定sleepは使用しない。
+Linuxでは実行ファイルの.exeを外す。GUIはWindows専用で、Linuxの成功をGUIの検証済みとは扱わない。Windowsの `yyprojectw --ui-smoke-test NEW_DIRECTORY` は専用DB・所有するウィンドウだけを使い、入力ダイアログ・マスタ・15画面・サイズ変更・カンバンドラッグを検証する。ディレクトリ内に報告と実描画関数によるBMPを出力する。完了判定はモデル内容と描画範囲。表示待ちの固定sleepは使用しない。
 
 ## デモ資材の更新
 
-`demo/scenario.json` が題材と時系列の出来事、`app/src/demo.rs` がStore経由の再生処理、`demo/yyproject-demo.sqlite3` が配布DBです。`yyproject --init-demo NEW_DATABASE` で別名へ生成し、すべての接続を閉じてから差し替えます。WAL／SHMファイルをコミットしません。デモ生成・既存ファイル上書き拒否・同梱DBの内容はRust試験で、実MCPと3案件×11画面×2サイズのGUI描画は各スモーク試験で検証します。データを変える場合は `demo/README.md` の件数も更新してください。
+`demo/scenario.json` が題材と時系列の出来事、`app/src/demo.rs` がStore経由の再生処理、`demo/yyproject-demo.sqlite3` が配布DBです。`yyproject --init-demo NEW_DATABASE` で別名へ生成し、すべての接続を閉じてから差し替えます。WAL／SHMファイルをコミットしません。デモ生成・既存ファイル上書き拒否・同梱DBの内容はRust試験で、実MCPと3案件×15画面×2サイズのGUI描画は各スモーク試験で検証します。データを変える場合は `demo/README.md` の件数も更新してください。
 
 配布用DBは、読み取り専用の場所でも参照できるようDELETEジャーナルモードで確定します。新しく生成したDBの全接続を閉じ、Python等で `PRAGMA journal_mode=DELETE` を実行して接続を閉じてから差し替えます。配布処理はデモのWAL／SHMが存在する場合に失敗させます。
 
@@ -75,7 +75,7 @@ reviewerは担当者マスタ参照。レビューありなら確認者必須、
 
 RemoveTaskはarchived=trueにする保管。RestoreTaskはfalseへ戻す。項目と依存レコードを消さず、全体DAGとマスタ参照の検証も継続する。active_dependenciesは保管項目へ接続する関係を除外し、日程・描画・完了ゲートに利用する。マスタ削除は保管項目の参照も検査する。保管項目は文書サイズ/項目数上限に含む。removal_previewは読取専用で版・項目・依存・関連課題を返す。
 
-新規DBは形式5。形式1・2・3・4への書き込み成功時に、同じトランザクションでuser_versionを5へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。CSV出力の保管項目はフィルターで選ぶ。SQLiteへの書き出しは保管項目も監査も含める。
+新規DBは形式6。形式1・2・3・4・5への書き込み成功時に、同じトランザクションでuser_versionを6へ更新する。読み取りと拒否された書き込みでは形式を変更しない。旧アプリの形式チェックにより、更新後の新項目を旧アプリが落として保存することを防ぐ。SQLiteのテーブル構成は変更していない。CSV出力の保管項目はフィルターで選ぶ。SQLiteへの書き出しは保管項目も監査も含める。
 
 ## カンバンの入力と描画
 
@@ -141,3 +141,14 @@ cases::prepareはSaveTask/SaveTasksの共通経路で新規検出日時・完了
 cases::statisticsはUTCの日末における検出累計・未完了・完了・中止を、検出と状態遷移の差分累積で算出する。開始日以前の状態を引き継ぎ、同日複数遷移・再オープンを扱う。種類はbug/issueのみ、最大3660日差。現在のTaskFilterと現在の原因等の属性がコホートを定める。終了日までの全検出が母集団で、開始日以降の検出だけには限定しない。未記録の旧課題はundatedとして分け、保管は現在のarchivedフィルタに従う。平均解決時間は終了日末にDoneの項目の検出から最後のDoneまで。状態履歴のない過去を推測しない。
 
 native/cases.rsの専用フォーム・日次チャートと6分類棒グラフ、および読み取り専用MCP case_statisticsで同じ集計結果を利用する。チャートはnative/charts.rsを工数／件数の単位で共用し、日次格子・4段日付・休日色・線幅を統一する。tools/test_cases.pyは実stdio、test_http.pyはPAT HTTP、test_postgres.pyはPostgreSQLとSQLite移送を検証する。Windows UI smokeは専用DB上の両フォーム・両一覧・幅/行高・同列コピー・一括編集・CSV・統計を検証する。
+
+
+## 依頼・質問と暫定対応
+
+形式6はKind::Inquiry/WorkaroundとTask.inquiry/workaroundを追加する。work.rsが必須値・日時・記録IDを検証し、cases.rsの状態履歴と日次集計を共用する。中止はcancelled_atに記録し、恒久実施とは区別する。記録はSaveExchange/RemoveExchangeでのみ更新し、SaveTask置換では保存済みの記録と次IDを保持する。検知・依頼と状態遷移の履歴をサーバーで保持する。工数算入は常にfalse、共通dueは回答期限／恒久予定日から導く。SQLite/PGの同一トランザクション・版検査・監査を通す。
+
+INQUIRY_COLUMNS/WORKAROUND_COLUMNSをgrid/sizing/bulk/CSVへ接続する。BULK_TASK_KEYSは個別本文の一括上書きを拒否する。native/work.rsは登録フォームと記録CRUD、cases.rsは日次件数と分類ダッシュボード、charts.rsは日次格子・休日と4段日付を共用する。ビュー11/12は一覧、13/14は統計。
+
+MCPツールは11種。management_statisticsはcurrent-cohortフィルターを先に適用してからライフサイクルを件数集計へ変換する。csv_exportは共通の列定義とTaskFilterからUTF-8 BOM/CRLF文字列を返す。HTTP/stdioとも同じSessionとStoreを使用し、読み取り専用PATでの記録更新は拒否する。tools/test_management.pyをSQLite/PG双方で再生し、HTTPとWindowsネイティブUIは各専用試験で別途検証する。
+
+app/src/management_demo.rsは従来の再生に4番目の案件24項目と18記録を追加する。新しいDBをdemo/yyproject-management-demo.sqlite3へ同梱し、既存のdemo/yyproject-demo.sqlite3は変更しない。検証では専用コピーを使用する。

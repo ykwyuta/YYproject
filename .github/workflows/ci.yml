@@ -49,6 +49,17 @@ jobs:
           EXE=target/release/yyproject
           if [ "$RUNNER_OS" = Windows ]; then EXE="$EXE.exe"; fi
           python tools/validate_operations.py "$EXE"
+      - name: Management acceptance over actual MCP
+        shell: bash
+        run: |
+          EXE=target/release/yyproject
+          if [ "$RUNNER_OS" = Windows ]; then EXE="$EXE.exe"; fi
+          python tools/test_management.py "$EXE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yyproject-management-${{ runner.os }}
+          path: target/management-validation/
       - name: Streamable HTTP and PAT authentication
         shell: bash
         run: |
