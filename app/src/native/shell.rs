@@ -552,8 +552,8 @@ fn verify_nested_paint(s: &State) -> Result<()> {
                     .into());
                 }
                 let mut ink = 0;
-                for y in (0..height).step_by(2) {
-                    for x in (s.px(10)..width - s.px(4)).step_by(2) {
+                for y in 0..height {
+                    for x in s.px(10)..width - s.px(4) {
                         let pixel = GetPixel(dc, x, y).0;
                         if pixel & 255 > 180
                             && (pixel >> 8) & 255 > 180
@@ -564,7 +564,11 @@ fn verify_nested_paint(s: &State) -> Result<()> {
                     }
                 }
                 if ink < 10 {
-                    return Err(format!("Reentrant owner draw lost its text: id={id}").into());
+                    return Err(format!(
+                        "Reentrant owner draw lost its text: id={id} dpi={} ink={ink}",
+                        s.dpi
+                    )
+                    .into());
                 }
             }
             Ok(())
