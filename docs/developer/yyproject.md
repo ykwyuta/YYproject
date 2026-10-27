@@ -166,6 +166,9 @@ pat.rsのConfigに独立したweb_users（name/password_sha256/read_only）を�
 
 Webセッションは最大256件、無通信30分・絶対12時間。ログイン失敗は全体で30回/分まで。CookieはPath=/web、HttpOnly、SameSite=Strict、設定時Secure。POSTは許可Host/Origin、application/json、ランダムCSRFトークン（ログインを除く）を要求する。静的資産は本体にincludeし、外部CDN・インラインスクリプト・HTMLへのデータ挿入は使わない。CSP、nosniff、frame禁止、no-storeを設定する。要求は2MiB/15秒、同時待ち64を上限にする。
 
-web/app.jsは選択、キー操作、クリップボード、HTML DnD、ポインターによる寸法変更、SVGの各図表を担当する。保存用の型変換・整合性検査はRustが担当する。表は実スクロールと行高から表示近傍だけを描画する。編集・ダイアログの版を保持し、競合で下書きを上書きしない。非編集時は5秒周期で他の書込を参照する。永続化するブラウザーデータは寸法・画面・案件IDだけ。
+web/app.jsは選択、キー操作、クリップボード、HTML DnD、ポインターによる寸法変更、SVGの各図表を担当する。保存用の型変換・整合性検査はRustが担当する。表は実スクロールと行高から表示近傍だけを描画する。編集・ダイアログの版を保持し、競合で下書きを上書きしない。非編集時は5秒周期で他の書込を参照する。永続化するブラウザーデータは寸法・画面・案件ID・案件ごとの折りたたみ状態。
 
 実API試験は python tools/test_web.py EXECUTABLE（PGは --postgres）、実ブラウザーは --browser。tools/test_web_browser.cjsはPlaywright 1.62.1、専用プロファイルとテスト用パスワードだけを使い、実キー・クリップボード・ドラッグ・寸法・ダウンロードと保存結果を期限付きで判定する。Node.js/Playwrightは開発試験専用で、製品の実行時依存ではない。CIではWindows/LinuxでChromiumを明示的に準備する。Linux成功をWindowsネイティブGUI検証として扱わない。
+
+
+タスク階層の表示用射影はcore/table::outline_rowsを使用する。折りたたんだ親がフィルター結果に存在する場合だけ子孫を隠し、検索から除外された親の開閉状態で一致する子を隠さない。native/outlineは描画・ヒット領域・案件別の実行中の状態を管理し、grid_rows・ガントの描画／高さ／リサイズで同じ射影を使う。開閉時は隠れる選択を解除する。Webも同じ条件で可視行を計算し、案件別の状態をLocal Storageへ保存する。クリップボードは可視行の生の値、CSVは従来のTaskFilterを使用する。開閉はStoreに書き込まない。

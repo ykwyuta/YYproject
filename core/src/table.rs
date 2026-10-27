@@ -1,6 +1,33 @@
 //! Shared task grid, quoted TSV clipboard payloads and RFC 4180 CSV export.
 use crate::*;
 
+/// View-only folding. A filtered-out ancestor never hides a matching descendant.
+pub fn outline_rows<'a>(
+    project: &'a Project,
+    filter: &TaskFilter,
+    kind: Option<Kind>,
+    collapsed: &BTreeSet<i64>,
+) -> Vec<(&'a Task, usize)> {
+    let ordered = project.ordered_tasks();
+    let included: BTreeSet<_> = ordered
+        .iter()
+        .filter(|(t, _)| kind.is_none_or(|k| t.kind == k) && project.matches_filter(filter, t))
+        .map(|(t, _)| t.id)
+        .collect();
+    let mut hidden = BTreeSet::new();
+    ordered
+        .into_iter()
+        .filter(|(t, _)| {
+            if t.parent.is_some_and(|id| {
+                hidden.contains(&id) || (included.contains(&id) && collapsed.contains(&id))
+            }) {
+                hidden.insert(t.id);
+            }
+            included.contains(&t.id) && !hidden.contains(&t.id)
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, Serialize)]
 pub struct Column {
     pub key: &'static str,

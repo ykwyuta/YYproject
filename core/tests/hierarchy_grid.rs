@@ -4,6 +4,60 @@ fn day() -> NaiveDate {
     "2026-10-27".parse().unwrap()
 }
 #[test]
+fn outline_folding_hides_descendants_but_filtered_ancestors_do_not_hide_matches() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("outline.db"), false).unwrap();
+    let mut p = project(&mut store);
+    p = add(&mut store, &p, "親", None);
+    p = add(&mut store, &p, "子", Some(1));
+    p = add(&mut store, &p, "検索対象の孫", Some(2));
+    p = add(&mut store, &p, "別系統", None);
+    p = add(&mut store, &p, "別の子", Some(4));
+    let before = store.snapshot().unwrap();
+    let ids = |folded: &[i64], filter: &TaskFilter| {
+        table::outline_rows(
+            &p,
+            filter,
+            Some(Kind::Task),
+            &folded.iter().copied().collect(),
+        )
+        .into_iter()
+        .map(|(t, d)| (t.id, d))
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids(&[], &TaskFilter::default()),
+        [(1, 0), (2, 1), (3, 2), (4, 0), (5, 1)]
+    );
+    assert_eq!(
+        ids(&[1, 2], &TaskFilter::default()),
+        [(1, 0), (4, 0), (5, 1)]
+    );
+    assert_eq!(
+        ids(&[2], &TaskFilter::default()),
+        [(1, 0), (2, 1), (4, 0), (5, 1)]
+    );
+    assert_eq!(
+        ids(
+            &[1, 4],
+            &TaskFilter {
+                query: "検索対象".into(),
+                ..Default::default()
+            }
+        ),
+        [(3, 2)]
+    );
+    assert_eq!(
+        ids(&[4], &TaskFilter::default()),
+        [(1, 0), (2, 1), (3, 2), (4, 0)]
+    );
+    assert_eq!(
+        serde_json::to_value(store.get(p.id).unwrap()).unwrap(),
+        serde_json::to_value(p).unwrap()
+    );
+    assert_eq!(store.snapshot().unwrap().audit.len(), before.audit.len());
+}
+#[test]
 fn master_columns_are_exclusive_and_fill_down_preserves_individual_task_fields() {
     let keys = |kind| {
         table::master_columns(kind)

@@ -55,11 +55,12 @@ impl State {
             if point.x < boundary && point.y >= self.body.top + self.px(96) {
                 let mut y = self.body.top + self.px(96) - self.y;
                 if let Some(p) = &self.project {
-                    for (t, _) in p
-                        .ordered_tasks()
-                        .into_iter()
-                        .filter(|(t, _)| t.kind == Kind::Task && p.matches_filter(&self.filter, t))
-                    {
+                    for (t, _) in table::outline_rows(
+                        p,
+                        &self.filter,
+                        Some(Kind::Task),
+                        &self.collapsed_tasks(),
+                    ) {
                         y += self.px(self.timeline.height(t.id));
                         if y > self.body.top + self.px(96) && (point.y - y).abs() <= tolerance {
                             return Some(Target::Row(t.id));

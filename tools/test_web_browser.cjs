@@ -30,11 +30,12 @@ async function main() {
     if (m.type() === "error" && !m.text().includes("401"))
       errors.push(m.text());
   });
-  const waitAPI = (action,predicate=()=>true) =>
+  const waitAPI = (action, predicate = () => true) =>
     page.waitForResponse(
       (r) =>
         r.url() === origin + "/web/api" &&
-        r.request().postDataJSON()?.action === action && predicate(r.request().postDataJSON()),
+        r.request().postDataJSON()?.action === action &&
+        predicate(r.request().postDataJSON()),
     );
   const waitSave = () =>
     page.waitForFunction(() =>
@@ -51,7 +52,7 @@ async function main() {
     await page.getByRole("heading", { name: label, exact: true }).waitFor();
   };
   const project = async (id) => {
-    const response = waitAPI("project",r=>r.project_id===id);
+    const response = waitAPI("project", (r) => r.project_id === id);
     await page.locator("#projects").selectOption(String(id));
     const data = await (await response).json();
     await page.waitForFunction(
@@ -343,6 +344,79 @@ async function main() {
       1,
     );
     checks.push("Right-click child task action and hierarchy persistence");
+    const childId = p.tasks.find(
+      (t) => t.title === "Webから追加した子タスク",
+    ).id;
+    await page
+      .locator(`tr[data-id="${childId}"] td[data-col="2"]`)
+      .click({ button: "right" });
+    await page
+      .locator("#context-menu")
+      .getByRole("menuitem", { name: "子タスクを追加", exact: true })
+      .click();
+    editor = page.getByRole("dialog");
+    await editor
+      .getByLabel("件名", { exact: true })
+      .fill("Webから追加した孫タスク");
+    await editor.getByRole("button", { name: "保存", exact: true }).click();
+    await page.getByRole("dialog").waitFor({ state: "detached" });
+    p = await readProject(1);
+    const grandId = p.tasks.find(
+      (t) => t.title === "Webから追加した孫タスク",
+    ).id;
+    const beforeFold = JSON.stringify(p);
+    const toggle = (id) => page.locator(`button[data-outline-id="${id}"]`);
+    await toggle(childId).click();
+    assert.equal(await page.locator(`tr[data-id="${grandId}"]`).count(), 0);
+    await toggle(1).click();
+    assert.equal(await page.locator(`tr[data-id="${childId}"]`).count(), 0);
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Control+c");
+    assert.equal(
+      (await page.evaluate(() => navigator.clipboard.readText())).includes(
+        "Webから追加した子タスク",
+      ),
+      false,
+    );
+    await page.locator('tr[data-id="1"] .outline-subject').click();
+    await page.keyboard.press("Control+Space");
+    await page.locator(`tr[data-id="${childId}"]`).waitFor();
+    assert.equal(await page.locator(`tr[data-id="${grandId}"]`).count(), 0);
+    await page.keyboard.press("Control+Space");
+    await nav("ガント");
+    assert.equal(await toggle(1).getAttribute("aria-expanded"), "false");
+    await toggle(1).click();
+    assert.equal(await toggle(childId).getAttribute("aria-expanded"), "false");
+    await toggle(childId).click();
+    await page.locator(`.gantt-row[data-task-id="${grandId}"]`).waitFor();
+    assert.equal(JSON.stringify(await readProject(1)), beforeFold);
+    checks.push(
+      "Nested task disclosure buttons and Ctrl+Space across grid/Gantt; hidden rows excluded from copy and no project writes",
+    );
+    await nav("タスク一覧");
+    await toggle(1).click();
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "タスク一覧", exact: true })
+      .waitFor();
+    assert.equal(await toggle(1).getAttribute("aria-expanded"), "false");
+    await page.locator("#search").fill("Webから追加した孫タスク");
+    const searchDone = waitAPI("project");
+    await page.locator("#search").press("Enter");
+    await searchDone;
+    await page.locator(`tr[data-id="${grandId}"]`).waitFor();
+    const clearDone = waitAPI("project");
+    await page.locator("#clear-filter").click();
+    await clearDone;
+    await toggle(1).click();
+    await page.locator(`tr[data-id="${grandId}"]`).waitFor();
+    await page.screenshot({
+      path: path.join(out, "task-outline.png"),
+      fullPage: true,
+    });
+    checks.push(
+      "Project outline survives reload, filtered grandchildren remain discoverable, parent/depth guides shown",
+    );
     await nav("カンバン");
     const card = page.locator('.lane[data-status="todo"] .card').first();
     const cardId = await card.getAttribute("data-id");

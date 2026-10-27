@@ -32,7 +32,7 @@ read_only = false
 
 外部へ公開する場合はHTTPSのリバースプロキシを前段に置き、`Host` を保持します。`allowed_hosts` とHTTPSの `allowed_origins` を設定し、`secure_cookies = true` にします。直接HTTPで使用するローカル環境の既定値はfalseです。ループバック以外へ待ち受ける場合、許可Hostの明示が必要です。待ち受け・許可Host/Origin・Secure設定の変更はサーバーを再起動します。
 
-セッションはHttpOnly／SameSite=StrictのCookieで管理し、無通信30分・最長12時間で終了します。更新APIはOriginとCSRFトークンを検証します。認証情報をLocal Storageに保存しません。画面の寸法・最後に開いた画面と案件IDだけをブラウザーに保存します。
+セッションはHttpOnly／SameSite=StrictのCookieで管理し、無通信30分・最長12時間で終了します。更新APIはOriginとCSRFトークンを検証します。認証情報をLocal Storageに保存しません。画面の寸法・最後に開いた画面と案件ID・案件ごとの折りたたみ状態をブラウザーに保存します。
 
 ## PostgreSQLモード
 
@@ -44,6 +44,8 @@ export YYPROJECT_DATABASE_URL='postgresql://USER:PASSWORD@HOST:PORT/DATABASE?ssl
 Docker ComposeでのDB起動・接続・双方向移行は[PostgreSQLガイド](postgresql.md)を参照してください。`--web`／`--web-postgres` に `--read-only` を付けると全ユーザーが参照専用になります。データベースの接続先変更と移行はサーバーの管理コマンドで行います。
 
 ## グリッドの操作
+
+タスク一覧とガントでは、件名左の▼／▶で子・孫タスクを閉じたり開いたりできます。インデント・接続線・親ID・子件数を表示します。親を選択してCtrl+Spaceでも切り替えられます。子自身の開閉状態は親を閉じても保持し、案件ごとの状態をブラウザーに保存します。折りたたみは参照専用でも使用できます。閉じた子は選択・コピー・一括編集の対象から外れますが、CSVは出力条件に一致する全タスクを出力します。親が検索条件に一致しないときは、一致する子を隠しません。
 
 タスク・バグ・課題・依頼／質問・暫定対応の各一覧とマスタは、共通のグリッド操作を提供します。
 

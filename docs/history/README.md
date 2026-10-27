@@ -1,5 +1,7 @@
 # 検討経緯・作業記録
 
+- [親子タスクの階層表示と折りたたみ（2026-10-27）](verification/yyproject-task-outline-2026-10-27.md)
+
 - [左メニューのちらつき・文字欠落修正（2026-10-27）](verification/yyproject-sidebar-repaint-2026-10-27.md)
 
 - [Web版に合わせたWindows版デザインと実操作検証（2026-10-27）](verification/yyproject-native-web-design-2026-10-27.md)

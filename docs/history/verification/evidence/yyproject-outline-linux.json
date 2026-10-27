@@ -1,0 +1,33 @@
+{
+  "result": "passed",
+  "checks": [
+    "F2/Enter inline edit, range selection, Ctrl+D and real system clipboard copy",
+    "Multi-row attribute editor, forbidden title bulk editing, assignee persisted",
+    "Quoted multiline TSV paste through actual Ctrl+V",
+    "Real HTML drag/drop reorders ID rows and persists",
+    "Actual column and row boundary pointer resizing",
+    "Header right-click value filtering",
+    "Selected-column filtered CSV browser download with exchange history",
+    "Exchange log addition via human form",
+    "Create bug, issue, inquiry and workaround through dedicated human forms",
+    "All four dedicated grids and daily/classification dashboards",
+    "Exclusive master tabs with native-style inline editing",
+    "Right-click child task action and hierarchy persistence",
+    "Nested task disclosure buttons and Ctrl+Space across grid/Gantt; hidden rows excluded from copy and no project writes",
+    "Project outline survives reload, filtered grandchildren remain discoverable, parent/depth guides shown",
+    "Real card drag/drop between status lanes",
+    "Four-level Gantt, visible lightning line and draggable name/date divider",
+    "Dependency family focus dims unrelated nodes",
+    "Session restore and 1024x768 scrolling layout",
+    "Readonly login disables mutations"
+  ],
+  "viewport": [
+    1440,
+    1000
+  ],
+  "secondaryViewport": [
+    1024,
+    768
+  ],
+  "browser": "151.0.7922.34"
+}

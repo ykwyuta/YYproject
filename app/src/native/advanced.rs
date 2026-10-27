@@ -25,7 +25,16 @@ fn cell(row: usize, col: usize) -> Result<POINT> {
     state(|s| {
         Ok(POINT {
             x: s.body.left - s.x
-                + s.px(table::COLUMNS[..col].iter().map(|c| c.width).sum::<i32>() + 8),
+                + s.px(table::COLUMNS[..col].iter().map(|c| c.width).sum::<i32>()
+                    + 8
+                    + if table::COLUMNS[col].key == "title" {
+                        24 + s
+                            .grid_rows()
+                            .get(row)
+                            .map_or(0, |r| r.1.min(12) as i32 * 18)
+                    } else {
+                        0
+                    }),
             y: s.body.top - s.y + (row as i32 + 1) * s.px(30) + s.px(15),
         })
     })
@@ -111,6 +120,8 @@ pub(super) fn run(h: HWND, directory: &std::path::Path, report: &mut Vec<String>
         Ok(t.id)
     })?;
     snapshot(h, &directory.join("hierarchical-grid.bmp"))?;
+    super::outline::smoke_test(h, directory, report, [1, child, grandchild])?;
+    send(h, WM_COMMAND, 202, 0);
     let at = cell(0, 2)?;
     send(h, WM_LBUTTONDOWN, 1, mouse(at));
     send(h, WM_LBUTTONUP, 0, mouse(at));

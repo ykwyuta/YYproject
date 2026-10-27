@@ -1,0 +1,137 @@
+Initial storage backend: SQLite
+カンバン: 2200x1400 client=2174x1256 body=344..1196 targets=2
+ガント: 2200x1400 client=2174x1256 body=344..1196 targets=2
+タスク一覧: 2200x1400 client=2174x1256 body=344..1196 targets=2
+課題一覧: 2200x1400 client=2174x1256 body=344..1196 targets=1
+依存ネットワーク: 2200x1400 client=2174x1290 body=344..1230 targets=3
+バーンダウン: 2200x1400 client=2174x1256 body=344..1196 targets=0
+バーンアップ: 2200x1400 client=2174x1256 body=344..1196 targets=0
+マスタ: 2200x1400 client=2174x1290 body=412..1230 targets=1
+バグ一覧: 2200x1400 client=2174x1256 body=344..1196 targets=0
+バグ統計: 2200x1400 client=2140x1256 body=344..1196 targets=0
+課題統計: 2200x1400 client=2140x1256 body=344..1196 targets=0
+依頼・質問一覧: 2200x1400 client=2174x1256 body=344..1196 targets=0
+暫定対応一覧: 2200x1400 client=2174x1256 body=344..1196 targets=0
+依頼・質問統計: 2200x1400 client=2140x1256 body=344..1196 targets=0
+暫定対応統計: 2200x1400 client=2140x1256 body=344..1196 targets=0
+カンバン: 1280x960 client=1254x816 body=320..756 targets=2
+ガント: 1280x960 client=1254x816 body=320..756 targets=2
+タスク一覧: 1280x960 client=1254x816 body=320..756 targets=2
+課題一覧: 1280x960 client=1254x816 body=320..756 targets=1
+依存ネットワーク: 1280x960 client=1254x850 body=320..790 targets=3
+バーンダウン: 1280x960 client=1254x816 body=320..756 targets=0
+バーンアップ: 1280x960 client=1254x816 body=320..756 targets=0
+マスタ: 1280x960 client=1254x850 body=388..790 targets=1
+バグ一覧: 1280x960 client=1254x816 body=320..756 targets=0
+バグ統計: 1280x960 client=1220x816 body=320..756 targets=0
+課題統計: 1280x960 client=1220x816 body=320..756 targets=0
+依頼・質問一覧: 1280x960 client=1254x816 body=320..756 targets=0
+暫定対応一覧: 1280x960 client=1254x816 body=320..756 targets=0
+依頼・質問統計: 1280x960 client=1220x816 body=320..756 targets=0
+暫定対応統計: 1280x960 client=1220x816 body=320..756 targets=0
+Native reopening/progress and schedule cancel/confirmation/read-only details: OK
+Native task/master forms, AI refresh, multiline/master preservation, project switching, fifteen views at two sizes, real client hit tests and kanban drag: OK
+Kanban pointer preview, target column, timer-driven edge scrolling, persisted drop, click threshold, same-column no-op, Escape/capture/outside/right-click/deactivation cancellation: OK
+Native task context menu: edit and five status actions, popup cancellation without saving: OK
+Web-inspired native shell: actual sidebar buttons and compact chooser navigate all 15 views; visible control bounds and content checked at actual DPI, no data writes: OK
+Owner-draw reentrancy: all 15 active/inactive sidebar buttons render background and text through real WM_DRAWITEM while APP is mutably borrowed; WM_ERASEBKGND preserves pixels: OK
+Task outline: real disclosure clicks in grid/Gantt hide descendants, retain nested folding and restore all rows; hidden selections clear and project/revision stay unchanged: OK
+Native selected-row batch: assignee and actual completion date in one revision, unselected rows unchanged, non-contiguous selection and deselection: OK
+Master native subtabs isolate categories/assignees/holidays with relevant columns; one-cell paste and fill-down copy within columns; multi-row title edits rejected without writes; chart calendar weekday/day/month/year: OK
+Master inline F2/Enter, rectangular copy, atomic paste; task/Gantt column and row boundary drag, scroll and Escape rollback without data revision; daily chart and focused network canvas: OK
+Native child/grandchild action, 3 category levels, F2/Enter cell commit, rectangular TSV, atomic invalid paste, header filter menu, full-text description search, row drag, four calendar rows, origin/width/lightning settings, milestone, selected/filtered CSV and Jira CSV with ancestor closure: OK
+Dedicated bug/issue native forms, phase/cause/plans/difficulty/timestamps, isolated grids, F2 cell persistence, fill-down/one-cell paste, native bulk attributes, column/row boundary resize, dedicated CSV menus, cause column filter, daily count convergence and six analysis charts with scrolling: OK
+Management native forms and multiline exchange add/edit/delete, isolated grids, inline cell edit, clipboard/fill-down, bulk attributes, column filter, column/row boundary resize, CSV menus and daily convergence/classification charts: OK
+Demo project=1 view=カンバン width=2200 visible=14 content=2400x4660 viewport=1656x852: rendered
+Demo project=1 view=ガント width=2200 visible=6 content=2760x5224 viewport=1656x852: rendered
+Demo project=1 view=タスク一覧 width=2200 visible=12 content=7720x3132 viewport=1656x852: rendered
+Demo project=1 view=課題一覧 width=2200 visible=14 content=12940x1080 viewport=1656x852: rendered
+Demo project=1 view=依存ネットワーク width=2200 visible=20 content=3220x4600 viewport=1656x852: rendered
+Demo project=1 view=バーンダウン width=2200 visible=0 content=2240x852 viewport=1690x852: rendered
+Demo project=1 view=バーンアップ width=2200 visible=0 content=2240x852 viewport=1690x852: rendered
+Demo project=1 view=マスタ width=2200 visible=3 content=1060x300 viewport=1690x818: rendered
+Demo project=1 view=バグ一覧 width=2200 visible=0 content=12940x120 viewport=1690x852: rendered
+Demo project=1 view=バグ統計 width=2200 visible=0 content=2000x1982 viewport=1656x852: rendered
+Demo project=1 view=課題統計 width=2200 visible=0 content=2000x1982 viewport=1656x852: rendered
+Demo project=1 view=依頼・質問一覧 width=2200 visible=0 content=7200x120 viewport=1690x852: rendered
+Demo project=1 view=暫定対応一覧 width=2200 visible=0 content=7580x120 viewport=1690x852: rendered
+Demo project=1 view=依頼・質問統計 width=2200 visible=0 content=2000x1502 viewport=1656x852: rendered
+Demo project=1 view=暫定対応統計 width=2200 visible=0 content=2000x1342 viewport=1656x852: rendered
+Demo project=1 view=カンバン width=1280 visible=6 content=2400x4660 viewport=1132x436: rendered
+Demo project=1 view=ガント width=1280 visible=3 content=2752x5224 viewport=1132x436: rendered
+Demo project=1 view=タスク一覧 width=1280 visible=5 content=7720x3132 viewport=1132x436: rendered
+Demo project=1 view=課題一覧 width=1280 visible=7 content=12940x1080 viewport=1132x436: rendered
+Demo project=1 view=依存ネットワーク width=1280 visible=9 content=3220x4600 viewport=1132x436: rendered
+Demo project=1 view=バーンダウン width=1280 visible=0 content=2240x436 viewport=1166x436: rendered
+Demo project=1 view=バーンアップ width=1280 visible=0 content=2240x436 viewport=1166x436: rendered
+Demo project=1 view=マスタ width=1280 visible=3 content=1060x300 viewport=1166x402: rendered
+Demo project=1 view=バグ一覧 width=1280 visible=0 content=12940x120 viewport=1166x436: rendered
+Demo project=1 view=バグ統計 width=1280 visible=0 content=2000x1700 viewport=1132x436: rendered
+Demo project=1 view=課題統計 width=1280 visible=0 content=2000x1700 viewport=1132x436: rendered
+Demo project=1 view=依頼・質問一覧 width=1280 visible=0 content=7200x120 viewport=1166x436: rendered
+Demo project=1 view=暫定対応一覧 width=1280 visible=0 content=7580x120 viewport=1166x436: rendered
+Demo project=1 view=依頼・質問統計 width=1280 visible=0 content=2000x1220 viewport=1132x436: rendered
+Demo project=1 view=暫定対応統計 width=1280 visible=0 content=2000x1060 viewport=1132x436: rendered
+Demo project=2 view=カンバン width=2200 visible=10 content=2400x1540 viewport=1656x852: rendered
+Demo project=2 view=ガント width=2200 visible=6 content=2760x1480 viewport=1656x852: rendered
+Demo project=2 view=タスク一覧 width=2200 visible=12 content=7720x972 viewport=1656x852: rendered
+Demo project=2 view=課題一覧 width=2200 visible=4 content=12940x360 viewport=1690x852: rendered
+Demo project=2 view=依存ネットワーク width=2200 visible=8 content=5520x1000 viewport=1656x852: rendered
+Demo project=2 view=バーンダウン width=2200 visible=0 content=2174x852 viewport=1690x852: rendered
+Demo project=2 view=バーンアップ width=2200 visible=0 content=2174x852 viewport=1690x852: rendered
+Demo project=2 view=マスタ width=2200 visible=3 content=1060x300 viewport=1690x818: rendered
+Demo project=2 view=バグ一覧 width=2200 visible=0 content=12940x120 viewport=1690x852: rendered
+Demo project=2 view=バグ統計 width=2200 visible=0 content=2000x1982 viewport=1656x852: rendered
+Demo project=2 view=課題統計 width=2200 visible=0 content=2000x1982 viewport=1656x852: rendered
+Demo project=2 view=依頼・質問一覧 width=2200 visible=0 content=7200x120 viewport=1690x852: rendered
+Demo project=2 view=暫定対応一覧 width=2200 visible=0 content=7580x120 viewport=1690x852: rendered
+Demo project=2 view=依頼・質問統計 width=2200 visible=0 content=2000x1502 viewport=1656x852: rendered
+Demo project=2 view=暫定対応統計 width=2200 visible=0 content=2000x1342 viewport=1656x852: rendered
+Demo project=2 view=カンバン width=1280 visible=4 content=2400x1540 viewport=1132x436: rendered
+Demo project=2 view=ガント width=1280 visible=3 content=2752x1480 viewport=1132x436: rendered
+Demo project=2 view=タスク一覧 width=1280 visible=5 content=7720x972 viewport=1132x436: rendered
+Demo project=2 view=課題一覧 width=1280 visible=4 content=12940x360 viewport=1166x436: rendered
+Demo project=2 view=依存ネットワーク width=1280 visible=5 content=5520x1000 viewport=1132x436: rendered
+Demo project=2 view=バーンダウン width=1280 visible=0 content=1254x436 viewport=1166x436: rendered
+Demo project=2 view=バーンアップ width=1280 visible=0 content=1254x436 viewport=1166x436: rendered
+Demo project=2 view=マスタ width=1280 visible=3 content=1060x300 viewport=1166x402: rendered
+Demo project=2 view=バグ一覧 width=1280 visible=0 content=12940x120 viewport=1166x436: rendered
+Demo project=2 view=バグ統計 width=1280 visible=0 content=2000x1700 viewport=1132x436: rendered
+Demo project=2 view=課題統計 width=1280 visible=0 content=2000x1700 viewport=1132x436: rendered
+Demo project=2 view=依頼・質問一覧 width=1280 visible=0 content=7200x120 viewport=1166x436: rendered
+Demo project=2 view=暫定対応一覧 width=1280 visible=0 content=7580x120 viewport=1166x436: rendered
+Demo project=2 view=依頼・質問統計 width=1280 visible=0 content=2000x1220 viewport=1132x436: rendered
+Demo project=2 view=暫定対応統計 width=1280 visible=0 content=2000x1060 viewport=1132x436: rendered
+Demo project=3 view=カンバン width=2200 visible=4 content=2400x2020 viewport=1656x852: rendered
+Demo project=3 view=ガント width=2200 visible=6 content=2760x1064 viewport=1656x852: rendered
+Demo project=3 view=タスク一覧 width=2200 visible=8 content=7720x732 viewport=1690x852: rendered
+Demo project=3 view=課題一覧 width=2200 visible=2 content=12940x240 viewport=1690x852: rendered
+Demo project=3 view=依存ネットワーク width=2200 visible=5 content=460x2000 viewport=1656x886: rendered
+Demo project=3 view=バーンダウン width=2200 visible=0 content=3680x852 viewport=1690x852: rendered
+Demo project=3 view=バーンアップ width=2200 visible=0 content=3680x852 viewport=1690x852: rendered
+Demo project=3 view=マスタ width=2200 visible=3 content=1060x300 viewport=1690x818: rendered
+Demo project=3 view=バグ一覧 width=2200 visible=0 content=12940x120 viewport=1690x852: rendered
+Demo project=3 view=バグ統計 width=2200 visible=0 content=2000x1982 viewport=1656x852: rendered
+Demo project=3 view=課題統計 width=2200 visible=0 content=2000x1982 viewport=1656x852: rendered
+Demo project=3 view=依頼・質問一覧 width=2200 visible=0 content=7200x120 viewport=1690x852: rendered
+Demo project=3 view=暫定対応一覧 width=2200 visible=0 content=7580x120 viewport=1690x852: rendered
+Demo project=3 view=依頼・質問統計 width=2200 visible=0 content=2000x1502 viewport=1656x852: rendered
+Demo project=3 view=暫定対応統計 width=2200 visible=0 content=2000x1342 viewport=1656x852: rendered
+Demo project=3 view=カンバン width=1280 visible=2 content=2400x2020 viewport=1132x436: rendered
+Demo project=3 view=ガント width=1280 visible=3 content=2752x1064 viewport=1132x436: rendered
+Demo project=3 view=タスク一覧 width=1280 visible=5 content=7720x732 viewport=1132x436: rendered
+Demo project=3 view=課題一覧 width=1280 visible=2 content=12940x240 viewport=1166x436: rendered
+Demo project=3 view=依存ネットワーク width=1280 visible=3 content=460x2000 viewport=1132x470: rendered
+Demo project=3 view=バーンダウン width=1280 visible=0 content=3680x436 viewport=1166x436: rendered
+Demo project=3 view=バーンアップ width=1280 visible=0 content=3680x436 viewport=1166x436: rendered
+Demo project=3 view=マスタ width=1280 visible=3 content=1060x300 viewport=1166x402: rendered
+Demo project=3 view=バグ一覧 width=1280 visible=0 content=12940x120 viewport=1166x436: rendered
+Demo project=3 view=バグ統計 width=1280 visible=0 content=2000x1700 viewport=1132x436: rendered
+Demo project=3 view=課題統計 width=1280 visible=0 content=2000x1700 viewport=1132x436: rendered
+Demo project=3 view=依頼・質問一覧 width=1280 visible=0 content=7200x120 viewport=1166x436: rendered
+Demo project=3 view=暫定対応一覧 width=1280 visible=0 content=7580x120 viewport=1166x436: rendered
+Demo project=3 view=依頼・質問統計 width=1280 visible=0 content=2000x1220 viewport=1132x436: rendered
+Demo project=3 view=暫定対応統計 width=1280 visible=0 content=2000x1060 viewport=1132x436: rendered
+Search/unassigned filters, completed-only Kanban and clear action: OK
+Native classification/review fields, pending filter, archive cancel/confirm, archived graph/gantt/chart, archive menu and restore: OK
+Expanded demo: 4 projects/114 records, populated management lists/statistics at two sizes and scroll positions; actual ID-cell row DnD and header filter menus: OK

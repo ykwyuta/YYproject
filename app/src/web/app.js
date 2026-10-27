@@ -319,6 +319,118 @@ function setupButtons() {
     ? `${S.rows.length}行 / ${S.p.name}`
     : "";
 }
+function foldedTasks() {
+  return new Set(S.layout[`outline:${S.p.id}`] || []);
+}
+function childCount(id) {
+  const parent = task(id);
+  return S.p.tasks.filter(
+    (t) => t.parent === id && t.archived === parent.archived,
+  ).length;
+}
+function outlineRows(rows) {
+  const folded = foldedTasks(),
+    included = new Set(rows.map((r) => r.id)),
+    byId = new Map(S.p.tasks.map((t) => [t.id, t]));
+  return rows.filter((r) => {
+    let parent = byId.get(r.id)?.parent;
+    const seen = new Set();
+    while (parent != null && !seen.has(parent)) {
+      seen.add(parent);
+      if (included.has(parent) && folded.has(parent)) return false;
+      parent = byId.get(parent)?.parent;
+    }
+    return true;
+  });
+}
+async function toggleOutline(id) {
+  if (S.editor)
+    throw new Error("編集中のセルを確定するかEscで取り消してください");
+  const folded = foldedTasks();
+  folded.has(id) ? folded.delete(id) : folded.add(id);
+  S.layout[`outline:${S.p.id}`] = [...folded];
+  persistLayout();
+  const surface = $("#surface"),
+    x = surface.scrollLeft,
+    y = surface.scrollTop;
+  S.selected.clear();
+  S.selecting = false;
+  S.focus = id;
+  await render();
+  const index = S.rows.findIndex((r) => r.id === id);
+  S.anchor = S.current = [
+    Math.max(0, index),
+    Math.max(
+      0,
+      S.cols.findIndex((c) => c.key === "title"),
+    ),
+  ];
+  if (isGrid()) selectionPaint();
+  surface.scrollLeft = x;
+  surface.scrollTop = y;
+  surface.focus({ preventScroll: true });
+}
+function outlineTitle(record) {
+  const id = record.id,
+    t = task(id),
+    children = childCount(id),
+    folded = foldedTasks().has(id),
+    depth = Math.min(record.depth || 0, 12);
+  const title = el("div", { class: "outline-title" });
+  const guides = el("span", {
+    class: "outline-guides",
+    "aria-hidden": "true",
+    hidden: depth === 0,
+  });
+  guides.style.width = depth * 18 + "px";
+  title.append(guides);
+  if (children)
+    title.append(
+      el("button", {
+        type: "button",
+        class: "outline-toggle",
+        "data-outline-id": id,
+        "aria-label": `タスク#${id}の子タスク`,
+        "aria-expanded": String(!folded),
+        title: `${folded ? "展開する" : "折りたたむ"}（子${children}件）`,
+        text: folded ? "▶" : "▼",
+        onpointerdown: (e) => e.stopPropagation(),
+        onclick: guarded(async (e) => {
+          e.stopPropagation();
+          await toggleOutline(id);
+        }),
+        ondblclick: (e) => e.stopPropagation(),
+      }),
+    );
+  else
+    title.append(
+      el("span", {
+        class: "outline-leaf",
+        "aria-hidden": "true",
+        text: depth ? "•" : "",
+      }),
+    );
+  title.append(
+    el("span", {
+      class: "outline-subject",
+      text: (t.milestone ? "◆ " : "") + t.title,
+    }),
+  );
+  if (children)
+    title.append(
+      el("span", { class: "outline-count", text: `子${children}件` }),
+    );
+  if (t.parent != null)
+    title.append(
+      el("span", {
+        class: "outline-parent",
+        text: `親 #${t.parent}`,
+        title: task(t.parent)?.title || "",
+      }),
+    );
+  return title;
+}
+
 async function render() {
   const surface = $("#surface");
   surface.replaceChildren();
@@ -337,6 +449,7 @@ async function render() {
             ),
         )
       : S.data.rows.filter((r) => !view()[2] || task(r.id).kind === kind());
+  if (["tasks", "gantt"].includes(S.view)) S.rows = outlineRows(S.rows);
   S.cols =
     S.view === "masters" ? S.meta.masters[S.master] : S.meta.columns[kind()];
   setupButtons();
@@ -406,7 +519,7 @@ function renderGrid() {
   const surface = $("#surface");
   const table = el("table", {
     class: "grid",
-    role: "grid",
+    role: S.view === "tasks" ? "treegrid" : "grid",
     "aria-label": view()[1],
   });
   gridTable = table;
@@ -550,7 +663,12 @@ function drawGridRows() {
     const record = S.rows[row],
       id = record.id,
       h = height(id),
-      tr = el("tr", { "data-id": id });
+      tr = el("tr", {
+        "data-id": id,
+        ...(S.view === "tasks"
+          ? { "aria-level": (record.depth || 0) + 1 }
+          : {}),
+      });
     const checkbox = el("input", {
       type: "checkbox",
       "aria-label": `行${id}を選択`,
@@ -574,7 +692,8 @@ function drawGridRows() {
           (col === 0 ? "frozen id-cell row-handle" : ""),
         title: record.values[c.key] || "",
         onpointerdown: (e) => {
-          if (e.button !== 0 || e.target.closest(".row-resize")) return;
+          if (e.button !== 0 || e.target.closest(".row-resize,.outline-toggle"))
+            return;
           if (S.editor) return;
           if (e.ctrlKey || e.metaKey) {
             S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id);
@@ -610,9 +729,12 @@ function drawGridRows() {
       const text = el("div", {
         class: "cell-text",
         text:
-          (c.key === "title" ? "　".repeat(record.depth || 0) : "") +
-          (record.values[c.key] || ""),
+          c.key === "title" && S.view === "tasks"
+            ? ""
+            : record.values[c.key] || "",
       });
+      if (c.key === "title" && S.view === "tasks")
+        text.append(outlineTitle(record));
       text.style.maxHeight = h - 1 + "px";
       td.append(text);
       if (col === 0) {
@@ -1208,6 +1330,15 @@ async function editItem(id = focusedId(), parent = null) {
         parent,
         values: values(controls),
       });
+      if (!existing) {
+        const parentId = Number(controls.parent?.value || parent);
+        if (parentId) {
+          const folded = foldedTasks();
+          folded.delete(parentId);
+          S.layout[`outline:${S.p.id}`] = [...folded];
+          persistLayout();
+        }
+      }
       await reload(false);
       message("項目を保存しました", true);
     },
@@ -2341,6 +2472,7 @@ function renderGantt() {
         "div",
         {
           class: "gantt-row",
+          "data-task-id": t.id,
           title: t.title,
           onclick: () => {
             S.focus = t.id;
@@ -2352,7 +2484,7 @@ function renderGantt() {
           ondblclick: guarded(() => editItem(t.id)),
         },
         [
-          el("div", { text: "　".repeat(r.depth || 0) + t.title }),
+          outlineTitle(r),
           el("small", { text: `${t.start || "未定"} ～ ${t.due || "未定"}` }),
         ],
       );
@@ -2854,6 +2986,17 @@ function wire() {
   surface.addEventListener(
     "keydown",
     guarded(async (e) => {
+      if (
+        !S.editor &&
+        e.ctrlKey &&
+        e.code === "Space" &&
+        ["tasks", "gantt"].includes(S.view)
+      ) {
+        e.preventDefault();
+        const id = S.view === "gantt" ? S.focus : focusedId();
+        if (id != null && childCount(id)) await toggleOutline(id);
+        return;
+      }
       if (S.editor || !isGrid() || !S.rows.length) return;
       const ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && e.key.toLowerCase() === "a") {

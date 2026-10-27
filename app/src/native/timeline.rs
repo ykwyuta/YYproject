@@ -105,6 +105,7 @@ pub(super) fn paint(
     v: Viewport,
     filter: &TaskFilter,
     hits: &mut Vec<(RECT, i64)>,
+    mut outline: outline::Painter<'_>,
 ) {
     let a = v.body;
     let black = COLORREF(0x473025);
@@ -205,11 +206,7 @@ pub(super) fn paint(
     unsafe {
         IntersectClipRect(dc, a.left + name_w, base, a.right, a.bottom);
     }
-    let rows = p
-        .ordered_tasks()
-        .into_iter()
-        .filter(|(t, _)| t.kind == Kind::Task && p.matches_filter(filter, t))
-        .collect::<Vec<_>>();
+    let rows = table::outline_rows(p, filter, Some(Kind::Task), outline.collapsed);
     let baseline = x + (options.as_of - first).num_days() as i32 * day + day / 2;
     let mut previous = (baseline, base);
     let mut next_y = base - v.y;
@@ -329,17 +326,14 @@ pub(super) fn paint(
                 COLORREF(0xffffff)
             },
         );
-        label(
+        outline::paint_title(
             dc,
-            rect(a.left + v.px(10), y, name_w - v.px(20), row.min(v.px(27))),
-            &format!(
-                "{}{}#{} {}",
-                "  ".repeat((*depth).min(20)),
-                if t.milestone { "◆ " } else { "" },
-                t.id,
-                t.title
-            ),
-            black,
+            p,
+            t,
+            *depth,
+            rect(a.left + v.px(8), y, name_w - v.px(16), row.min(v.px(27))),
+            &mut outline,
+            v.dpi,
         );
         if row >= v.px(44) {
             label(

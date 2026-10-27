@@ -180,12 +180,19 @@ impl State {
         self.project
             .as_ref()
             .map(|p| {
-                p.ordered_tasks()
-                    .into_iter()
-                    .filter(|(t, _)| p.matches_filter(&self.filter, t))
-                    .filter(|(t, _)| self.grid.all_kinds || t.kind == self.list_kind())
-                    .map(|(t, d)| (t.id, d))
-                    .collect()
+                table::outline_rows(
+                    p,
+                    &self.filter,
+                    if self.grid.all_kinds {
+                        None
+                    } else {
+                        Some(self.list_kind())
+                    },
+                    &self.collapsed_tasks(),
+                )
+                .into_iter()
+                .map(|(t, d)| (t.id, d))
+                .collect()
             })
             .unwrap_or_default()
     }
@@ -544,6 +551,17 @@ impl State {
     pub(super) fn grid_key(&mut self, key: u16) -> Option<Result<()>> {
         let ctrl = unsafe { GetKeyState(VK_CONTROL.0 as i32) < 0 };
         let shift = unsafe { GetKeyState(VK_SHIFT.0 as i32) < 0 };
+        if ctrl && key == VK_SPACE.0 && matches!(self.view, 1 | 2) {
+            let id = if self.view == 1 {
+                self.selected
+            } else {
+                self.grid_rows().get(self.grid.current.0).map(|r| r.0)
+            };
+            if let Some(id) = id {
+                self.toggle_outline(id);
+            }
+            return Some(Ok(()));
+        }
         if ctrl && key == b'F' as u16 {
             return Some(self.search_form());
         }

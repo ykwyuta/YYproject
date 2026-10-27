@@ -31,6 +31,7 @@ mod cases;
 mod charts;
 mod grid;
 mod master_grid;
+mod outline;
 mod shell;
 mod sizing;
 mod timeline;
@@ -120,6 +121,8 @@ struct State {
     y: i32,
     content: (i32, i32),
     hits: Vec<(RECT, i64)>,
+    outline_hits: Vec<(RECT, i64)>,
+    collapsed: BTreeMap<i64, std::collections::BTreeSet<i64>>,
     drag: Option<CardDrag>,
     grid: GridState,
     timeline: Timeline,
@@ -1902,7 +1905,15 @@ impl State {
                 t.duration_days = 0;
                 t.estimate = 0.0;
             }
+            let parent = t.parent;
             self.apply(Change::SaveTask { task: t })?;
+            if new && let Some(id) = parent {
+                if let Some(p) = &self.project {
+                    self.collapsed.entry(p.id).or_default().remove(&id);
+                }
+                self.layout();
+                invalidate(self.hwnd);
+            }
         }
         Ok(())
     }
@@ -2120,6 +2131,7 @@ impl State {
                         );
                     }
                     self.store = Store::open(&path, false)?;
+                    self.collapsed.clear();
                     self.path = path;
                     self.project = None;
                     self.selected = None;
@@ -2136,6 +2148,7 @@ impl State {
                 let url = std::env::var("YYPROJECT_DATABASE_URL")
                     .map_err(|_| "YYPROJECT_DATABASE_URLを設定してください")?;
                 self.store = Store::connect_postgres(&url, false)?;
+                self.collapsed.clear();
                 self.project = None;
                 self.selected = None;
                 self.reload()?;
@@ -2301,6 +2314,7 @@ impl State {
     }
     fn layout(&mut self) {
         self.hits.clear();
+        self.outline_hits.clear();
         unsafe {
             for _ in 0..3 {
                 let mut before = RECT::default();
@@ -2380,13 +2394,11 @@ impl State {
                             }) as i32
                                 * self.px(self.timeline.day_width)
                     }),
-                    self.project.as_ref().map_or(0, |p| {
-                        p.tasks
-                            .iter()
-                            .filter(|t| t.kind == Kind::Task && p.matches_filter(&self.filter, t))
-                            .map(|t| self.px(self.timeline.height(t.id)))
-                            .sum::<i32>()
-                    }) + self.px(96),
+                    self.outline_rows()
+                        .iter()
+                        .map(|(t, _)| self.px(self.timeline.height(t.id)))
+                        .sum::<i32>()
+                        + self.px(96),
                 ),
                 2 | 3 | 7 | 8 | 11 | 12 => (
                     self.px((0..self.grid_columns().len())
@@ -2512,6 +2524,8 @@ impl State {
             black,
         );
         self.hits.clear();
+        self.outline_hits.clear();
+        let collapsed = self.collapsed_tasks();
         let a = self.body;
         if a.bottom <= a.top {
             return;
@@ -2667,12 +2681,18 @@ impl State {
             2 | 3 | 8 | 11 | 12 => {
                 let selected_rows = self.selected_task_ids();
                 let list_kind = self.list_kind();
-                for (i, (t, depth)) in p
-                    .ordered_tasks()
-                    .into_iter()
-                    .filter(|(t, _)| p.matches_filter(&self.filter, t))
-                    .filter(|(t, _)| self.grid.all_kinds || t.kind == list_kind)
-                    .enumerate()
+                for (i, (t, depth)) in table::outline_rows(
+                    p,
+                    &self.filter,
+                    if self.grid.all_kinds {
+                        None
+                    } else {
+                        Some(list_kind)
+                    },
+                    &collapsed,
+                )
+                .into_iter()
+                .enumerate()
                 {
                     let y = self.grid_row_top(i);
                     let row = self.grid_height(t.id);
@@ -2707,21 +2727,24 @@ impl State {
                                 },
                             );
                         }
-                        let mut value = table::value(p, t, c.key);
+                        let area = rect(cx + self.px(4), y, w - self.px(8), row);
                         if c.key == "title" {
-                            value = format!(
-                                "{}{}{}",
-                                "  ".repeat(depth.min(20)),
-                                if t.milestone { "◆ " } else { "" },
-                                value
+                            outline::paint_title(
+                                dc,
+                                p,
+                                t,
+                                depth,
+                                area,
+                                &mut outline::Painter {
+                                    collapsed: &collapsed,
+                                    disclosures: &mut self.outline_hits,
+                                    show_id: false,
+                                },
+                                self.dpi,
                             );
+                        } else {
+                            label(dc, area, &table::value(p, t, c.key), black);
                         }
-                        label(
-                            dc,
-                            rect(cx + self.px(4), y, w - self.px(8), row),
-                            &value,
-                            black,
-                        );
                         line(dc, (cx + w, y), (cx + w, y + row), COLORREF(0xefe8e4));
                         cx += w;
                     }
@@ -2778,6 +2801,11 @@ impl State {
                 },
                 &self.filter,
                 &mut self.hits,
+                outline::Painter {
+                    collapsed: &collapsed,
+                    disclosures: &mut self.outline_hits,
+                    show_id: true,
+                },
             ),
             4 => {
                 let graph = &self.network;
@@ -2865,6 +2893,15 @@ impl State {
             9 | 10 | 13 | 14 => self.paint_case_statistics(dc),
             _ => {}
         }
+        let disclosure_top = a.top + self.px(if self.view == 1 { 96 } else { 30 });
+        for (r, _) in &mut self.outline_hits {
+            r.top = r.top.max(disclosure_top);
+            r.bottom = r.bottom.min(a.bottom);
+            r.left = r.left.max(a.left);
+            r.right = r.right.min(a.right);
+        }
+        self.outline_hits
+            .retain(|(r, _)| r.left < r.right && r.top < r.bottom);
         if let Some(drag) = self.drag.filter(|d| d.active && self.view == 0) {
             if let Some(status) = self.drop_status(drag.pointer) {
                 let col = Status::ALL.iter().position(|s| *s == status).unwrap();
@@ -3264,6 +3301,13 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     let x = l.0 as u16 as i16 as i32;
                     let y = (l.0 >> 16) as u16 as i16 as i32;
                     let _ = SetFocus(Some(h));
+                    if inside(s.body, x, y)
+                        && let Some((_, id)) = s.outline_hits.iter().find(|(r, _)| inside(*r, x, y))
+                    {
+                        let id = *id;
+                        s.toggle_outline(id);
+                        return Ok(());
+                    }
                     if s.begin_resize(POINT { x, y }) {
                         return Ok(());
                     }
@@ -3386,6 +3430,11 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                 }
                 GRID_FINISH => s.finish_grid_message(w.0 == 1, l.0 != 0),
                 WM_LBUTTONDBLCLK => {
+                    let x = l.0 as u16 as i16 as i32;
+                    let y = (l.0 >> 16) as u16 as i16 as i32;
+                    if s.outline_hits.iter().any(|(r, _)| inside(*r, x, y)) {
+                        return true;
+                    }
                     if matches!(s.view, 2 | 3 | 7 | 8 | 11 | 12) {
                         s.begin_cell_edit(None)
                     } else {
@@ -3679,6 +3728,8 @@ pub fn run() -> Result<()> {
             y: 0,
             content: (0, 0),
             hits: vec![],
+            outline_hits: vec![],
+            collapsed: BTreeMap::new(),
             drag: None,
             grid: GridState::default(),
             timeline: Timeline::default(),
