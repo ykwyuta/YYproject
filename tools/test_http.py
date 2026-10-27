@@ -21,8 +21,9 @@ def generate(exe, config, user, readonly=False):
 
 
 class Server:
-    def __init__(self, exe, config, database, readonly=False, postgres=False):
-        args = [str(exe), '--mcp-http-postgres'] if postgres else [str(exe), '--mcp-http', str(database)]
+    def __init__(self, exe, config, database, readonly=False, postgres=False, web=False):
+        mode='--web' if web else '--mcp-http'
+        args = [str(exe), mode+'-postgres'] if postgres else [str(exe), mode, str(database)]
         self.process = subprocess.Popen(args + ['--listen', '127.0.0.1:0', '--auth-config', str(config)] +
                                         (['--read-only'] if readonly else []), stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, text=True, encoding='utf-8')

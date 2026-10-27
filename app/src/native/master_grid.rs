@@ -95,7 +95,7 @@ impl State {
                     dc,
                     rr,
                     if i % 2 == 0 {
-                        COLORREF(0xfafafa)
+                        COLORREF(0xfffcfa)
                     } else {
                         COLORREF(0xffffff)
                     },
@@ -104,22 +104,22 @@ impl State {
                 for (col, c) in self.grid_columns().iter().enumerate() {
                     let w = self.px(self.grid_width(col));
                     if self.grid.contains(i, col) {
-                        fill(dc, rect(cx, y, w, row), COLORREF(0xffe5c7));
+                        fill(dc, rect(cx, y, w, row), COLORREF(0xfff0e6));
                     }
                     label(
                         dc,
                         rect(cx + self.px(4), y, w - self.px(8), row),
                         &table::master_value(m, c.key),
-                        COLORREF(0x282828),
+                        COLORREF(0x473025),
                     );
-                    line(dc, (cx + w, y), (cx + w, y + row), COLORREF(0xe0e0e0));
+                    line(dc, (cx + w, y), (cx + w, y + row), COLORREF(0xefe8e4));
                     cx += w;
                 }
                 line(
                     dc,
                     (x, y + row - 1),
                     (x + self.content.0, y + row - 1),
-                    COLORREF(0xd0d0d0),
+                    COLORREF(0xece2db),
                 );
                 hits.push((rr, m.id));
             }
@@ -128,7 +128,7 @@ impl State {
         fill(
             dc,
             rect(a.left, a.top, a.right - a.left, header),
-            COLORREF(0xf0f0f0),
+            COLORREF(0xfdf9f7),
         );
         let mut cx = x;
         for (col, c) in self.grid_columns().iter().enumerate() {
@@ -137,13 +137,13 @@ impl State {
                 dc,
                 rect(cx + self.px(4), a.top, w - self.px(8), header),
                 c.label,
-                COLORREF(0x282828),
+                COLORREF(0x473025),
             );
             line(
                 dc,
                 (cx + w, a.top),
                 (cx + w, a.top + header),
-                COLORREF(0xc0c0c0),
+                COLORREF(0xe3d5cb),
             );
             cx += w;
         }

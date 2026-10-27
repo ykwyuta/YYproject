@@ -32,7 +32,7 @@ fn paint_impl(dc: HDC, p: &Project, v: timeline::Viewport, up: bool, counts: boo
     let date_x = |d: chrono::NaiveDate| plot.left + ((d - first).num_days() as f64 * step) as i32;
     let begin = (((a.left - plot.left) as f64 / step).floor() as i64).max(0);
     let end = (((a.right - plot.left) as f64 / step).ceil() as i64 + 1).min(days + 1);
-    let black = COLORREF(0x282828);
+    let black = COLORREF(0x473025);
     for n in begin..end {
         let Some(day) = first.checked_add_days(chrono::Days::new(n as u64)) else {
             continue;
@@ -43,10 +43,10 @@ fn paint_impl(dc: HDC, p: &Project, v: timeline::Viewport, up: bool, counts: boo
             fill(
                 dc,
                 rect(x, plot.top, next - x, plot.bottom - plot.top + px(48)),
-                COLORREF(0xf1f1f1),
+                COLORREF(0xf4f1f0),
             );
         }
-        line(dc, (x, plot.top), (x, plot.bottom), COLORREF(0xe0e0e0));
+        line(dc, (x, plot.top), (x, plot.bottom), COLORREF(0xefe8e4));
         label(
             dc,
             rect(x, plot.bottom, next - x, px(24)),
@@ -102,7 +102,7 @@ fn paint_impl(dc: HDC, p: &Project, v: timeline::Viewport, up: bool, counts: boo
             dc,
             (x, plot.bottom),
             (x, plot.bottom + px(48)),
-            COLORREF(0xe0e0e0),
+            COLORREF(0xefe8e4),
         );
     }
     let mut max = p
@@ -132,7 +132,7 @@ fn paint_impl(dc: HDC, p: &Project, v: timeline::Viewport, up: bool, counts: boo
     let series = if up {
         vec![(1, COLORREF(0x398a39)), (2, COLORREF(0x777777))]
     } else {
-        vec![(0, COLORREF(0xc06c28))]
+        vec![(0, COLORREF(0xc76c2d))]
     };
     for (which, c) in series {
         let value = |s: &Snapshot| match which {

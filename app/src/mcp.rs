@@ -166,7 +166,11 @@ fn tools() -> Value {
     }
     json!({"tools":tools})
 }
-fn call(store: &mut Store, name: &str, args: Value) -> Result<Value, Box<dyn std::error::Error>> {
+pub(super) fn call(
+    store: &mut Store,
+    name: &str,
+    args: Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
     if !args.is_object() {
         return Err("Tool arguments must be an object".into());
     }

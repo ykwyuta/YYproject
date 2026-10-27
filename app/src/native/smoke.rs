@@ -630,6 +630,7 @@ pub(super) fn run(h: HWND, directory: &std::path::Path) -> Result<()> {
     report.push("Native task/master forms, AI refresh, multiline/master preservation, project switching, fifteen views at two sizes, real client hit tests and kanban drag: OK".into());
     report.push("Kanban pointer preview, target column, timer-driven edge scrolling, persisted drop, click threshold, same-column no-op, Escape/capture/outside/right-click/deactivation cancellation: OK".into());
     report.push("Native task context menu: edit and five status actions, popup cancellation without saving: OK".into());
+    super::shell::smoke_test(h, directory, &mut report)?;
     super::advanced::run(h, directory, &mut report)?;
     super::cases::smoke_test(h, directory, &mut report)?;
     super::work::smoke_test(h, directory, &mut report)?;
@@ -840,6 +841,7 @@ pub(super) fn capture(state: &mut State, area: RECT, path: &std::path::Path) -> 
         let old = SelectObject(dc, bitmap.into());
         let started = std::time::Instant::now();
         state.paint(dc, area);
+        state.capture_shell_controls(dc);
         let paint_us = started.elapsed().as_micros();
         std::fs::write(
             path.with_extension("json"),
@@ -848,7 +850,7 @@ pub(super) fn capture(state: &mut State, area: RECT, path: &std::path::Path) -> 
                 "dpi":state.dpi,"client":[area.right,area.bottom],"body":[state.body.left,state.body.top,state.body.right,state.body.bottom],
                 "content":[state.content.0,state.content.1],"scroll":[state.x,state.y],"visible_hit_targets":state.hits.len(),
                 "project_items":state.project.as_ref().map_or(0,|p|p.tasks.len()),"paint_microseconds":paint_us,
-                "capture_note":"Production canvas painter; native child controls are not included. Single offscreen draw, not an interactive performance benchmark."
+                "capture_note":"Production canvas and live native child bounds/renderers. Single offscreen draw, not an interactive performance benchmark."
             }))?,
         )?;
         let mut info = BITMAPINFO {

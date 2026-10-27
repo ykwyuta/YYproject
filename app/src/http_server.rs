@@ -25,17 +25,20 @@ struct Client {
     fingerprint: String,
     seen: Instant,
 }
-struct Database {
-    store: Store,
+pub(super) struct Database {
+    pub(super) store: Store,
     clients: BTreeMap<String, Client>,
 }
 #[derive(Clone)]
-struct Service {
-    db: Arc<Mutex<Database>>,
-    config: PathBuf,
-    hosts: BTreeSet<String>,
-    origins: BTreeSet<String>,
-    capacity: Arc<tokio::sync::Semaphore>,
+pub(super) struct Service {
+    pub(super) db: Arc<Mutex<Database>>,
+    pub(super) config: PathBuf,
+    pub(super) hosts: BTreeSet<String>,
+    pub(super) origins: BTreeSet<String>,
+    pub(super) capacity: Arc<tokio::sync::Semaphore>,
+    pub(super) web: Arc<Mutex<crate::web::Sessions>>,
+    pub(super) secure_cookies: bool,
+    pub(super) read_only: bool,
 }
 fn error(status: StatusCode, message: &str) -> Response {
     let mut response = (
@@ -331,11 +334,14 @@ pub fn serve(
     store: Store,
     listen: SocketAddr,
     config: PathBuf,
+    web: bool,
+    read_only: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let auth = pat::Config::load(&config).map_err(|e| e.to_string())?;
     let socket = std::net::TcpListener::bind(listen)?;
     socket.set_nonblocking(true)?;
     let address = socket.local_addr()?;
+    let secure_cookies = auth.server.secure_cookies;
     let mut hosts = auth
         .server
         .allowed_hosts
@@ -364,6 +370,9 @@ pub fn serve(
         hosts,
         origins,
         capacity: Arc::new(tokio::sync::Semaphore::new(64)),
+        web: Arc::new(Mutex::new(crate::web::Sessions::default())),
+        secure_cookies,
+        read_only,
     };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -372,16 +381,20 @@ pub fn serve(
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::from_std(socket)?;
         eprintln!("YYproject MCP Streamable HTTP: http://{address}/mcp");
-        axum::serve(
-            listener,
-            Router::new()
-                .route("/mcp", any(endpoint))
-                .with_state(service),
-        )
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
+        if web {
+            eprintln!("YYproject Web UI: http://{address}/");
+        }
+        let router = Router::new().route("/mcp", any(endpoint));
+        let router = if web {
+            crate::web::routes(router)
+        } else {
+            router
+        };
+        axum::serve(listener, router.with_state(service))
+            .with_graceful_shutdown(async {
+                let _ = tokio::signal::ctrl_c().await;
+            })
+            .await
     })?;
     Ok(())
 }

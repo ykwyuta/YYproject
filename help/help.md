@@ -4,6 +4,8 @@
 
 Windows GUI: `yyprojectw [DATABASE]`
 
+Windows版はWeb版に合わせた濃紺の左ナビゲーションと明るい一覧、青い選択色を使います。狭い画面では上部の画面選択欄に切り替わります。追加・編集・一括編集・絞り込み・CSVはツールバーから実行でき、省略された操作は既存メニューから使用できます。追加は現在の画面の種類に対応します。F6で画面ナビゲーションへ移動し、Tabで操作ボタン間を移動します。表内のTabは次の列へ移動します。ガントの項目と予定日程は初期状態で2行表示します。
+
 Windows / Linux MCP: `yyproject --mcp DATABASE [--read-only]`
 
 同梱デモ: 配布フォルダの `demo/yyproject-demo.sqlite3` をコピーしてGUIで開けます。YYシリーズの架空の3案件・90項目と、マスタ・依存・進捗履歴を収録しています。詳しくは配布物の `demo/README.md` を参照してください。
@@ -210,3 +212,16 @@ MCPのcase_statisticsは読み取り専用で、kind（bug／issue）、from、t
 MCPはproject_changeのsave_task/save_tasks（inquiry/workaround属性）、save_exchange/remove_exchange、move_task、remove_task/restore_taskを利用します。task_listはkind=inquiry/workaroundと検索・列条件、management_statisticsはkind/from/to/filter、csv_exportはcolumns/filterを指定します。CSVはcontent文字列として返し、クライアントで保存します。更新には最新のexpected_revisionが必要です。
 
 拡充デモはdemo/yyproject-management-demo.sqlite3（4案件114項目・やりとり18件）。コピーを開き4番目の案件を選択してください。yyproject --init-management-demo NEW_DATABASEで再生成できます。詳しくはdocs/user/management.mdとdemo/management-playbook.mdを参照してください。
+
+
+## Web UI（Linux／Windows）
+
+yyproject --generate-password USER --auth-config yyproject-server.toml でユーザーのWebパスワードを発行します。参照専用は --read-only を付けます。平文は出力時だけ表示し、設定にはハッシュを保存します。同じUSERに再発行すると古いパスワードとセッションが無効になります。PATは別の認証情報です。
+
+yyproject --web DATABASE --listen 127.0.0.1:8740 --auth-config yyproject-server.toml で起動し、http://127.0.0.1:8740/ を開きます。PostgreSQLは --web-postgres（YYPROJECT_DATABASE_URL）。同じポートの /mcp はPAT認証で併用できます。配信にNode.jsは不要です。
+
+一覧はF2／Enterでセル編集、Shift+Enterで改行、Escで取消。Ctrl+C/Vで範囲コピー・引用符付きTSV貼り付け、Ctrl+Dで属性列を下方向へコピー。複数行を選んで一括編集し、IDセルのドラッグで行移動、列・行境界で寸法変更、列見出しの右クリックで値の絞り込みができます。件名や本文の一括上書きはできません。
+
+カンバンのカード移動、子・孫タスク、マスタの排他的タブと直接編集、ガント・稲妻線・マイルストーン、日次バーンダウン／バーンアップ、依存系統の強調、バグ／課題／依頼／暫定対応の専用画面、やりとり記録、条件・列選択CSVとJira CSV、全案件のSQLiteバックアップに対応します。
+
+Webログインはパスワードだけで、対応ユーザー名を監査に使用します。HttpOnly Cookie、Origin・CSRF検証、セッションの期限、読み取り専用権限と版競合検出を使用します。外部公開はHTTPSプロキシと allowed_hosts／allowed_origins／secure_cookies を設定します。詳しくは docs/user/web-ui.md を参照してください。

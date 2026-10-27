@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>YYproject</title>
+    <link rel="stylesheet" href="/web/app.css" />
+    <script src="/web/app.js" defer></script>
+  </head>
+  <body>
+    <section id="login" class="login">
+      <form id="login-form">
+        <div class="brand">YY<span>project</span></div>
+        <h1>プロジェクトにログイン</h1>
+        <label for="password">ユーザーのパスワード</label
+        ><input
+          id="password"
+          type="password"
+          autocomplete="current-password"
+          required
+          autofocus
+        /><button type="submit" class="primary">ログイン</button>
+        <p id="login-error" role="alert"></p>
+      </form>
+    </section>
+    <div id="app" hidden>
+      <header class="top">
+        <div class="brand">YY<span>project</span></div>
+        <label class="project-label"
+          >プロジェクト<select
+            id="projects"
+            aria-label="プロジェクト"
+          ></select></label
+        ><button id="new-project">新規</button
+        ><button id="rename-project">案件設定</button
+        ><span class="spacer"></span><span id="account"></span
+        ><button id="logout">ログアウト</button>
+      </header>
+      <div class="layout">
+        <nav id="views" aria-label="画面"></nav>
+        <main>
+          <div class="heading">
+            <div>
+              <span class="eyebrow">PROJECT WORKSPACE</span>
+              <h1 id="view-title"></h1>
+            </div>
+            <span id="revision" class="muted"></span>
+          </div>
+          <div id="message" role="status" hidden></div>
+          <div class="toolbar">
+            <input
+              id="search"
+              type="search"
+              placeholder="全文検索（記録の内容も検索）"
+              aria-label="全文検索"
+            /><button id="filters">絞り込み</button
+            ><button id="clear-filter">解除</button
+            ><label><input id="archived" type="checkbox" />保管済み</label
+            ><button id="refresh">再読込</button><span class="spacer"></span
+            ><button id="export">CSV出力</button
+            ><button id="jira">Jira CSV</button>
+          </div>
+          <div class="toolbar actions">
+            <button id="add" class="primary">追加</button
+            ><button id="edit">編集</button><button id="bulk">一括編集</button
+            ><button id="copy">コピー</button
+            ><button id="paste">貼り付け</button
+            ><button id="fill">下方向にコピー</button
+            ><button id="archive">保管</button><button id="restore">復元</button
+            ><button id="exchange">やりとり記録</button
+            ><button id="dependency">依存関係</button
+            ><button id="schedule">日程再計算</button
+            ><button id="capture">進捗を記録</button
+            ><button id="settings">表示・統計設定</button>
+          </div>
+          <div class="toolbar">
+            <button id="backup">SQLiteへ書き出し</button
+            ><button id="help">使い方</button>
+          </div>
+          <div id="subtabs" class="subtabs" hidden></div>
+          <div id="surface" tabindex="0" aria-label="プロジェクト画面"></div>
+          <footer>
+            <span id="selection-info"></span><span class="spacer"></span
+            ><span id="hint"
+              >F2 編集 · Ctrl+C/V コピー・貼り付け · Ctrl+D 同列コピー ·
+              IDをドラッグして移動 · 列の右クリックで絞り込み</span
+            >
+          </footer>
+        </main>
+      </div>
+    </div>
+    <div id="context-menu" class="context-menu" hidden role="menu"></div>
+    <div id="modal-host"></div>
+  </body>
+</html>

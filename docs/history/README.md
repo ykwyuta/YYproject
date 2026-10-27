@@ -1,5 +1,9 @@
 # 検討経緯・作業記録
 
+- [Web版に合わせたWindows版デザインと実操作検証（2026-10-27）](verification/yyproject-native-web-design-2026-10-27.md)
+
+- [Web UI・パスワード認証と実ブラウザー操作検証（2026-10-27）](verification/yyproject-web-ui-2026-10-27.md)
+
 - [バグ・課題の専用管理と統計（2026-10-27）](verification/yyproject-cases-2026-10-27.md)
 
 - [yyproject初期方針](proposals/yyproject.md)

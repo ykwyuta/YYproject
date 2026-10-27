@@ -240,7 +240,7 @@ impl State {
         };
         let management = self.management_statistics().ok();
         let a = self.body;
-        let black = COLORREF(0x282828);
+        let black = COLORREF(0x473025);
         let left = a.left + self.px(12) - self.x;
         let top = a.top - self.y;
         label(
@@ -366,7 +366,7 @@ impl State {
                             self.px(500) * (*n as i32) / (max as i32),
                             self.px(18),
                         ),
-                        COLORREF(0xc06c28),
+                        COLORREF(0xc76c2d),
                     );
                     label(
                         dc,

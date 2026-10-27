@@ -152,3 +152,18 @@ INQUIRY_COLUMNS/WORKAROUND_COLUMNSをgrid/sizing/bulk/CSVへ接続する。BULK_
 MCPツールは11種。management_statisticsはcurrent-cohortフィルターを先に適用してからライフサイクルを件数集計へ変換する。csv_exportは共通の列定義とTaskFilterからUTF-8 BOM/CRLF文字列を返す。HTTP/stdioとも同じSessionとStoreを使用し、読み取り専用PATでの記録更新は拒否する。tools/test_management.pyをSQLite/PG双方で再生し、HTTPとWindowsネイティブUIは各専用試験で別途検証する。
 
 app/src/management_demo.rsは従来の再生に4番目の案件24項目と18記録を追加する。新しいDBをdemo/yyproject-management-demo.sqlite3へ同梱し、既存のdemo/yyproject-demo.sqlite3は変更しない。検証では専用コピーを使用する。
+
+
+## 内蔵Web UI
+
+Windowsのnative/shell.rsはWebと共通の配色・外枠・ナビゲーション・ツールバーを提供する。実Win32ボタンをowner drawし、WM_COMMANDで既存の業務コマンドへ接続する。狭幅／低高さではComboBoxへ切り替える。body.leftを含む表示座標と実DPIでレイアウトし、水平スクロールのページ幅はbody.right-body.leftとする。選択や編集は既存のnative/grid・timelineを継続使用する。smokeでは実ボタン・ComboBoxの経路、コントロールの矩形、既存の保存結果を確認する。
+
+app/src/web.rsは --web/--web-postgres のときだけHTTPルーターに追加する。MCP HTTPと同じService/Store Mutexを使い、業務データ・版競合・監査・トランザクションを共用する。Web APIはread whitelistを持つmcp::callと、共通table列定義・型変換によるgrid/edit/edit_masterを提供する。書込actorは認証名に固定する。グリッドは矩形TSV、列の編集可否、一括属性の許可キーを検査してからSaveTasks/SaveMastersで原子的に適用する。SQLiteバックアップは専用一時パスから生成し、任意のサーバーパスを受け取らない。
+
+pat.rsのConfigに独立したweb_users（name/password_sha256/read_only）を追加した。--generate-passwordはPATと同じ排他ロック・同期済み一時ファイル・置換処理で256bit OS乱数のyyw_パスワードを生成する。高エントロピーの発行値のみをSHA-256で照合し、任意の人間向け短いパスワードは受け付けない。PATとWebパスワードは相互利用不可。設定を毎要求で読み、ユーザー名とハッシュへセッションを結び付ける。パスワード再発行・ユーザー削除・権限変更は次要求から反映する。
+
+Webセッションは最大256件、無通信30分・絶対12時間。ログイン失敗は全体で30回/分まで。CookieはPath=/web、HttpOnly、SameSite=Strict、設定時Secure。POSTは許可Host/Origin、application/json、ランダムCSRFトークン（ログインを除く）を要求する。静的資産は本体にincludeし、外部CDN・インラインスクリプト・HTMLへのデータ挿入は使わない。CSP、nosniff、frame禁止、no-storeを設定する。要求は2MiB/15秒、同時待ち64を上限にする。
+
+web/app.jsは選択、キー操作、クリップボード、HTML DnD、ポインターによる寸法変更、SVGの各図表を担当する。保存用の型変換・整合性検査はRustが担当する。表は実スクロールと行高から表示近傍だけを描画する。編集・ダイアログの版を保持し、競合で下書きを上書きしない。非編集時は5秒周期で他の書込を参照する。永続化するブラウザーデータは寸法・画面・案件IDだけ。
+
+実API試験は python tools/test_web.py EXECUTABLE（PGは --postgres）、実ブラウザーは --browser。tools/test_web_browser.cjsはPlaywright 1.62.1、専用プロファイルとテスト用パスワードだけを使い、実キー・クリップボード・ドラッグ・寸法・ダウンロードと保存結果を期限付きで判定する。Node.js/Playwrightは開発試験専用で、製品の実行時依存ではない。CIではWindows/LinuxでChromiumを明示的に準備する。Linux成功をWindowsネイティブGUI検証として扱わない。

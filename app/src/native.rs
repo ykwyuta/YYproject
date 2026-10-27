@@ -31,6 +31,7 @@ mod cases;
 mod charts;
 mod grid;
 mod master_grid;
+mod shell;
 mod sizing;
 mod timeline;
 mod work;
@@ -102,6 +103,7 @@ struct State {
     selector: HWND,
     tabs: HWND,
     master_tabs: HWND,
+    shell_controls: Vec<(HWND, usize)>,
     font: HFONT,
     dpi: i32,
     network: BTreeMap<i64, (usize, usize)>,
@@ -223,7 +225,7 @@ fn stroke(dc: HDC, a: (i32, i32), b: (i32, i32), c: COLORREF, width: i32) {
 fn wrapped_label(dc: HDC, mut r: RECT, value: &str) {
     let mut title: Vec<_> = value.encode_utf16().collect();
     unsafe {
-        SetTextColor(dc, COLORREF(0x282828));
+        SetTextColor(dc, COLORREF(0x473025));
         SetBkMode(dc, TRANSPARENT);
         DrawTextW(
             dc,
@@ -236,7 +238,7 @@ fn wrapped_label(dc: HDC, mut r: RECT, value: &str) {
 fn window_font(h: HWND) -> HFONT {
     unsafe {
         CreateFontW(
-            -px(h, 16),
+            -px(h, 14),
             0,
             0,
             0,
@@ -248,8 +250,8 @@ fn window_font(h: HWND) -> HFONT {
             OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY,
-            FF_MODERN.0 as u32,
-            &HSTRING::from(yy_ui_win::font::BUNDLED_FAMILY),
+            FF_DONTCARE.0 as u32,
+            w!("Yu Gothic UI"),
         )
     }
 }
@@ -425,6 +427,19 @@ unsafe extern "system" fn form_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LR
         if !ptr.is_null() {
             let f = &mut *ptr;
             match m {
+                WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT => {
+                    let dc = HDC(w.0 as *mut std::ffi::c_void);
+                    SetTextColor(dc, shell::INK);
+                    SetBkColor(dc, COLORREF(0xffffff));
+                    SetDCBrushColor(dc, COLORREF(0xffffff));
+                    return LRESULT(GetStockObject(DC_BRUSH).0 as isize);
+                }
+                WM_ERASEBKGND => {
+                    let mut area = RECT::default();
+                    let _ = GetClientRect(h, &mut area);
+                    fill(HDC(w.0 as *mut std::ffi::c_void), area, COLORREF(0xffffff));
+                    return LRESULT(1);
+                }
                 AUTO_FORM if SMOKE.with(|s| s.get()) => {
                     if SMOKE_CANCEL_FORM.with(|s| s.replace(false)) {
                         let _ = PostMessageW(Some(h), WM_COMMAND, WPARAM(2), LPARAM(0));
@@ -2303,19 +2318,18 @@ impl State {
         unsafe {
             let mut r = RECT::default();
             let _ = GetClientRect(self.hwnd, &mut r);
-            let top = self.px(42);
+            let content_top = self.shell_layout(r);
+            let left = self.sidebar_width() + self.px(22);
             let _ = MoveWindow(
                 self.selector,
-                self.px(110),
-                self.px(6),
-                (r.right - self.px(125)).max(1),
+                self.px(172),
+                self.px(20),
+                (r.right - self.px(if r.right < self.px(700) { 194 } else { 390 }))
+                    .max(self.px(50)),
                 self.px(240),
                 true,
             );
-            let _ = MoveWindow(self.tabs, 0, top, r.right.max(1), self.px(200), true);
-            let rows = send(self.tabs, TCM_GETROWCOUNT, 0, 0).0.max(1) as i32;
-            let tab_h = rows * self.px(28) + self.px(5);
-            let _ = MoveWindow(self.tabs, 0, top, r.right.max(1), tab_h, true);
+            let _ = ShowWindow(self.tabs, SW_HIDE);
             let master_h = if self.view == 7 { self.px(34) } else { 0 };
             let _ = ShowWindow(
                 self.master_tabs,
@@ -2323,17 +2337,17 @@ impl State {
             );
             let _ = MoveWindow(
                 self.master_tabs,
-                0,
-                top + tab_h,
-                r.right.max(1),
+                left,
+                content_top,
+                (r.right - left - self.px(22)).max(1),
                 master_h.max(1),
                 true,
             );
             self.body = rect(
-                0,
-                top + tab_h + master_h,
-                r.right,
-                (r.bottom - top - tab_h - master_h - self.px(28)).max(0),
+                left,
+                content_top + master_h,
+                (r.right - left - self.px(22)).max(1),
+                (r.bottom - content_top - master_h - self.px(30)).max(0),
             );
             self.content = match self.view {
                 0 => (
@@ -2399,13 +2413,21 @@ impl State {
                 9 | 10 | 13 | 14 => self.case_chart_size(),
                 _ => (r.right, self.body.bottom - self.body.top),
             };
-            self.x = self.x.clamp(0, (self.content.0 - self.body.right).max(0));
+            self.x = self.x.clamp(
+                0,
+                (self.content.0 - (self.body.right - self.body.left)).max(0),
+            );
             self.y = self.y.clamp(
                 0,
                 (self.content.1 - (self.body.bottom - self.body.top)).max(0),
             );
             for (bar, size, page, pos) in [
-                (SB_HORZ, self.content.0, self.body.right, self.x),
+                (
+                    SB_HORZ,
+                    self.content.0,
+                    self.body.right - self.body.left,
+                    self.x,
+                ),
                 (
                     SB_VERT,
                     self.content.1,
@@ -2427,19 +2449,14 @@ impl State {
         }
     }
     fn paint(&mut self, dc: HDC, r: RECT) {
-        fill(dc, r, COLORREF(0xffffff));
+        fill(dc, r, shell::BACKGROUND);
         unsafe {
             SelectObject(dc, self.font.into());
         }
-        let black = COLORREF(0x282828);
-        let grey = COLORREF(0xf0f0f0);
-        let blue = COLORREF(0xc06c28);
-        label(
-            dc,
-            rect(self.px(10), 0, self.px(100), self.px(38)),
-            "プロジェクト",
-            black,
-        );
+        self.paint_shell(dc, r);
+        let black = shell::INK;
+        let grey = COLORREF(0xfdf9f7);
+        let blue = shell::BLUE;
         let footer = self.project.as_ref().map_or_else(
             || "ファイル → プロジェクトを追加 から始めてください".into(),
             |p| {
@@ -2485,7 +2502,12 @@ impl State {
         );
         label(
             dc,
-            rect(8, r.bottom - self.px(26), r.right - 16, self.px(26)),
+            rect(
+                self.body.left,
+                r.bottom - self.px(26),
+                r.right - self.body.left - self.px(16),
+                self.px(26),
+            ),
             &footer,
             black,
         );
@@ -2565,10 +2587,16 @@ impl State {
                             if self.drag.is_some_and(|d| d.active && d.id == t.id) {
                                 COLORREF(0xeeeeee)
                             } else if self.selected == Some(t.id) {
-                                COLORREF(0xf8dfbb)
+                                COLORREF(0xfff0e6)
                             } else {
-                                grey
+                                COLORREF(0xffffff)
                             },
+                        );
+                        outline(dc, card, shell::BORDER);
+                        fill(
+                            dc,
+                            rect(card.left, card.top, self.px(3), card.bottom - card.top),
+                            color(*status),
                         );
                         wrapped_label(
                             dc,
@@ -2656,9 +2684,9 @@ impl State {
                         dc,
                         rr,
                         if selected_rows.contains(&t.id) {
-                            COLORREF(0xf8dfbb)
+                            COLORREF(0xfff0e6)
                         } else if i % 2 == 0 {
-                            COLORREF(0xfafafa)
+                            COLORREF(0xfffcfa)
                         } else {
                             COLORREF(0xffffff)
                         },
@@ -2675,7 +2703,7 @@ impl State {
                                 {
                                     COLORREF(0xe9e9e9)
                                 } else {
-                                    COLORREF(0xffe5c7)
+                                    COLORREF(0xfff0e6)
                                 },
                             );
                         }
@@ -2694,14 +2722,14 @@ impl State {
                             &value,
                             black,
                         );
-                        line(dc, (cx + w, y), (cx + w, y + row), COLORREF(0xe0e0e0));
+                        line(dc, (cx + w, y), (cx + w, y + row), COLORREF(0xefe8e4));
                         cx += w;
                     }
                     line(
                         dc,
                         (x, y + row - 1),
                         (x + self.content.0, y + row - 1),
-                        COLORREF(0xe0e0e0),
+                        COLORREF(0xefe8e4),
                     );
                     self.hits.push((rr, t.id));
                 }
@@ -2733,7 +2761,7 @@ impl State {
                         dc,
                         (cx + w, a.top),
                         (cx + w, a.top + row),
-                        COLORREF(0xc0c0c0),
+                        COLORREF(0xe3d5cb),
                     );
                     cx += w;
                 }
@@ -2790,7 +2818,7 @@ impl State {
                     }
                     let t = by_id[&id];
                     let active = !focused || family.contains(&id);
-                    let ink = if active { black } else { COLORREF(0xc0c0c0) };
+                    let ink = if active { black } else { COLORREF(0xe3d5cb) };
                     fill(
                         dc,
                         box_r,
@@ -2870,7 +2898,7 @@ impl State {
                     ),
                     COLORREF(0xb8b8b8),
                 );
-                fill(dc, card, COLORREF(0xf8dfbb));
+                fill(dc, card, COLORREF(0xfff0e6));
                 outline(dc, card, blue);
                 wrapped_label(
                     dc,
@@ -2927,7 +2955,7 @@ impl State {
                     self.px(300),
                     row,
                 );
-                fill(dc, r, COLORREF(0xf8dfbb));
+                fill(dc, r, COLORREF(0xfff0e6));
                 label(dc, r, &format!("移動: #{} {}", t.id, t.title), black);
             }
         }
@@ -3110,6 +3138,10 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                 return false;
             };
             let result: Result<()> = match m {
+                WM_DRAWITEM => {
+                    s.draw_shell_button(&*(l.0 as *const DRAWITEMSTRUCT));
+                    Ok(())
+                }
                 WM_SIZE => {
                     s.layout();
                     invalidate(h);
@@ -3120,7 +3152,34 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     if id == 10 && (w.0 >> 16) & 0xffff == CBN_SELCHANGE as usize {
                         let index = send(s.selector, CB_GETCURSEL, 0, 0).0 as usize;
                         s.select_project(index)
+                    } else if id == 11 && (w.0 >> 16) & 0xffff == CBN_SELCHANGE as usize {
+                        let index = s
+                            .shell_controls
+                            .iter()
+                            .find(|(_, id)| *id == 11)
+                            .map(|(h, _)| send(*h, CB_GETCURSEL, 0, 0).0.max(0) as usize)
+                            .unwrap_or(0);
+                        s.command(200 + index)
                     } else {
+                        let toolbar =
+                            l.0 != 0 && s.shell_controls.iter().any(|(h, _)| h.0 as isize == l.0);
+                        let id = if toolbar && id == 110 {
+                            match s.view {
+                                3 | 10 => 111,
+                                8 | 9 => 124,
+                                11 | 13 => 127,
+                                12 | 14 => 128,
+                                7 => match s.master_kind {
+                                    MasterKind::Category => 130,
+                                    MasterKind::Assignee => 131,
+                                    MasterKind::Holiday => 132,
+                                },
+                                _ => 110,
+                            }
+                        } else {
+                            id
+                        };
+                        let _ = SetFocus(Some(h));
                         s.command(id)
                     }
                 }
@@ -3346,6 +3405,23 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                         result
                     } else {
                         match w.0 as u16 {
+                            key if key == VK_TAB.0 => {
+                                let _ = SetFocus(Some(s.selector));
+                                Ok(())
+                            }
+                            key if key == VK_F6.0 => {
+                                let id = if s.sidebar_width() == 0 {
+                                    11
+                                } else {
+                                    200 + s.view
+                                };
+                                if let Some((control, _)) =
+                                    s.shell_controls.iter().find(|(_, value)| *value == id)
+                                {
+                                    let _ = SetFocus(Some(*control));
+                                }
+                                Ok(())
+                            }
                             key if key == VK_ESCAPE.0 => {
                                 s.cancel_drag();
                                 Ok(())
@@ -3371,7 +3447,10 @@ unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT
                     let old = s.font;
                     s.font = font;
                     s.dpi = GetDpiForWindow(h).max(96) as i32;
-                    for c in [s.selector, s.tabs, s.master_tabs] {
+                    for c in [s.selector, s.tabs, s.master_tabs]
+                        .into_iter()
+                        .chain(s.shell_controls.iter().map(|(h, _)| *h))
+                    {
                         send(c, WM_SETFONT, font.0 as usize, 0);
                     }
                     let _ = DeleteObject(old.into());
@@ -3579,6 +3658,7 @@ pub fn run() -> Result<()> {
             selector,
             tabs,
             master_tabs,
+            shell_controls: shell::create(hwnd, font)?,
             font,
             dpi: GetDpiForWindow(hwnd).max(96) as i32,
             network: BTreeMap::new(),
@@ -3621,6 +3701,17 @@ pub fn run() -> Result<()> {
         }
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let control_focus = APP.with(|a| {
+                a.borrow().as_ref().is_some_and(|s| {
+                    let focus = GetFocus();
+                    focus == s.selector
+                        || focus == s.master_tabs
+                        || s.shell_controls.iter().any(|(h, _)| *h == focus)
+                })
+            });
+            if control_focus && IsDialogMessageW(hwnd, &msg).as_bool() {
+                continue;
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }

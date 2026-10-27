@@ -66,6 +66,27 @@ jobs:
           EXE=target/release/yyproject
           if [ "$RUNNER_OS" = Windows ]; then EXE="$EXE.exe"; fi
           python tools/test_http.py "$EXE"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Password Web UI and real browser interactions
+        shell: bash
+        run: |
+          npm install --prefix target/web-browser --no-save --no-audit --no-fund playwright@1.62.1
+          node target/web-browser/node_modules/playwright/cli.js install --with-deps chromium
+          EXE=target/release/yyproject
+          if [ "$RUNNER_OS" = Windows ]; then
+            EXE="$EXE.exe"
+            export NODE_PATH="$(cygpath -w "$PWD/target/web-browser/node_modules")"
+          else
+            export NODE_PATH="$PWD/target/web-browser/node_modules"
+          fi
+          python tools/test_web.py "$EXE" --browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yyproject-web-${{ runner.os }}
+          path: target/web-validation/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -124,3 +145,5 @@ jobs:
         run: python tools/test_postgres.py target/debug/yyproject
       - name: Streamable HTTP against PostgreSQL
         run: python tools/test_http.py target/debug/yyproject --postgres
+      - name: Password Web UI against PostgreSQL
+        run: python tools/test_web.py target/debug/yyproject --postgres

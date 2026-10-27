@@ -3,6 +3,7 @@ mod http_server;
 mod management_demo;
 mod mcp;
 mod pat;
+mod web;
 use std::{io, path::Path};
 use yy_project::Store;
 fn main() {
@@ -15,11 +16,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.first().and_then(|s| s.to_str()) {
         Some("--version") => println!("yyproject {}", env!("CARGO_PKG_VERSION")),
-        Some("--generate-pat") => {
+        Some(mode @ ("--generate-pat" | "--generate-password")) => {
             let user = args
                 .get(1)
                 .and_then(|s| s.to_str())
-                .ok_or("Usage: yyproject --generate-pat USER [--auth-config FILE] [--read-only]")?;
+                .ok_or("Usage: yyproject --generate-pat/--generate-password USER [--auth-config FILE] [--read-only]")?;
             let mut config = std::path::PathBuf::from("yyproject-server.toml");
             let mut read_only = false;
             let mut i = 2;
@@ -30,18 +31,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         config = args.get(i).ok_or("Missing auth config path")?.into();
                     }
                     Some("--read-only") => read_only = true,
-                    _ => return Err("Unknown PAT option".into()),
+                    _ => return Err("Unknown credential option".into()),
                 }
                 i += 1;
             }
-            let token = pat::generate(&config, user, read_only).map_err(|e| e.to_string())?;
+            let web = mode == "--generate-password";
+            let token = if web {
+                pat::generate_password(&config, user, read_only)
+            } else {
+                pat::generate(&config, user, read_only)
+            }
+            .map_err(|e| e.to_string())?;
             println!(
                 "{}",
-                serde_json::json!({"user":user,"pat":token,"config":config,"read_only":read_only})
+                if web {
+                    serde_json::json!({"user":user,"password":token,"config":config,"read_only":read_only})
+                } else {
+                    serde_json::json!({"user":user,"pat":token,"config":config,"read_only":read_only})
+                }
             );
         }
-        Some(mode @ ("--mcp-http" | "--mcp-http-postgres")) => {
-            let postgres = mode == "--mcp-http-postgres";
+        Some(mode @ ("--mcp-http" | "--mcp-http-postgres" | "--web" | "--web-postgres")) => {
+            let postgres = mode.ends_with("-postgres");
             let mut i = if postgres { 1 } else { 2 };
             let path = if postgres {
                 None
@@ -79,7 +90,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     read_only,
                 )?
             };
-            http_server::serve(store, listen, config)?;
+            http_server::serve(store, listen, config, mode.starts_with("--web"), read_only)?;
         }
         Some("--mcp") => {
             if !(2..=3).contains(&args.len()) || (args.len() == 3 && args[2] != "--read-only") {

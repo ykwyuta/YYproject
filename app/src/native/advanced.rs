@@ -203,7 +203,7 @@ pub(super) fn run(h: HWND, directory: &std::path::Path, report: &mut Vec<String>
             .collect::<std::collections::BTreeSet<_>>();
         SMOKE_MENU_SIZE.with(|n| n.set((2 + values.len()) as i32));
         Ok(POINT {
-            x: s.px(70),
+            x: s.body.left - s.x + s.px(70),
             y: s.body.top + s.px(10),
         })
     })?;
@@ -277,7 +277,7 @@ pub(super) fn run(h: HWND, directory: &std::path::Path, report: &mut Vec<String>
         }
         Ok((
             POINT {
-                x: s.timeline.width(s.dpi, s.body),
+                x: s.body.left + s.timeline.width(s.dpi, s.body),
                 y: s.body.top + s.px(10),
             },
             s.project.as_ref().unwrap().revision,
@@ -474,7 +474,7 @@ fn verify_interactions(
         },
     );
     state(|s| {
-        if s.timeline.height(id) != 50 {
+        if s.timeline.height(id) != 72 {
             return Err("Gantt row boundary resize failed".into());
         }
         Ok(())

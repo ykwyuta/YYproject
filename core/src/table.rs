@@ -1,7 +1,7 @@
 //! Shared task grid, quoted TSV clipboard payloads and RFC 4180 CSV export.
 use crate::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize)]
 pub struct Column {
     pub key: &'static str,
     pub label: &'static str,
@@ -819,6 +819,8 @@ pub const JIRA_COLUMNS: &[(&str, &str)] = &[
     ("category", "Component"),
 ];
 
+#[derive(Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct JiraOptions {
     /// Map roots/children/grandchildren to Epic/Task/Sub-task; otherwise Task/Sub-task.
     pub epic_roots: bool,

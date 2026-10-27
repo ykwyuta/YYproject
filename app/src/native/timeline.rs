@@ -35,7 +35,7 @@ impl Viewport {
 }
 impl Timeline {
     pub fn height(&self, id: i64) -> i32 {
-        self.heights.get(&id).copied().unwrap_or(30)
+        self.heights.get(&id).copied().unwrap_or(52)
     }
     pub fn width(&self, dpi: i32, body: RECT) -> i32 {
         (self.name_width * dpi / 96)
@@ -107,8 +107,8 @@ pub(super) fn paint(
     hits: &mut Vec<(RECT, i64)>,
 ) {
     let a = v.body;
-    let black = COLORREF(0x282828);
-    let grey = COLORREF(0xf0f0f0);
+    let black = COLORREF(0x473025);
+    let grey = COLORREF(0xfdf9f7);
     let red = COLORREF(0x4040d0);
     let first = options.origin.unwrap_or_else(|| {
         p.tasks
@@ -138,14 +138,14 @@ pub(super) fn paint(
             fill(
                 dc,
                 rect(cx, a.top + head * 2, day, a.bottom - a.top - head * 2),
-                COLORREF(0xf1f1f1),
+                COLORREF(0xf4f1f0),
             );
         }
         line(
             dc,
             (cx, a.top + head * 2),
             (cx, a.bottom),
-            COLORREF(0xe0e0e0),
+            COLORREF(0xefe8e4),
         );
         let year_end = NaiveDate::from_ymd_opt(d.year() + 1, 1, 1)
             .map_or(end, |next| (next - first).num_days() as i32);
@@ -167,7 +167,7 @@ pub(super) fn paint(
                 &format!("{}年", d.year()),
                 black,
             );
-            line(dc, (cx, a.top), (cx, a.top + head), COLORREF(0xc0c0c0));
+            line(dc, (cx, a.top), (cx, a.top + head), COLORREF(0xe3d5cb));
         }
         if n == begin || d.day() == 1 {
             label(
@@ -185,7 +185,7 @@ pub(super) fn paint(
                 dc,
                 (cx, a.top + head),
                 (cx, a.top + head * 2),
-                COLORREF(0xc0c0c0),
+                COLORREF(0xe3d5cb),
             );
         }
         label(
@@ -265,7 +265,7 @@ pub(super) fn paint(
                         (i64::from(width) * i64::from(t.progress) / 100) as i32,
                         v.px(3),
                     ),
-                    COLORREF(0xc06c28),
+                    COLORREF(0xc76c2d),
                 );
             }
             if options.lightning {
@@ -291,7 +291,7 @@ pub(super) fn paint(
             dc,
             (a.left + name_w, y + row - 1),
             (a.right, y + row - 1),
-            COLORREF(0xe0e0e0),
+            COLORREF(0xefe8e4),
         );
     }
     if options.lightning {
@@ -324,30 +324,49 @@ pub(super) fn paint(
             dc,
             rr,
             if i % 2 == 0 {
-                COLORREF(0xfafafa)
+                COLORREF(0xfffcfa)
             } else {
                 COLORREF(0xffffff)
             },
         );
         label(
             dc,
-            rect(a.left + v.px(4), y, name_w - v.px(8), row),
+            rect(a.left + v.px(10), y, name_w - v.px(20), row.min(v.px(27))),
             &format!(
-                "{}{}#{} {}  {}～{}",
+                "{}{}#{} {}",
                 "  ".repeat((*depth).min(20)),
                 if t.milestone { "◆ " } else { "" },
                 t.id,
-                t.title,
-                t.start.map(|d| d.to_string()).unwrap_or_default(),
-                t.due.map(|d| d.to_string()).unwrap_or_default()
+                t.title
             ),
             black,
         );
+        if row >= v.px(44) {
+            label(
+                dc,
+                rect(
+                    a.left + v.px(10),
+                    y + v.px(27),
+                    name_w - v.px(20),
+                    row - v.px(27),
+                ),
+                &format!(
+                    "{} ～ {}",
+                    t.start
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "未定".into()),
+                    t.due
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "未定".into())
+                ),
+                shell::MUTED,
+            );
+        }
         line(
             dc,
             (a.left, y + row - 1),
             (a.left + name_w, y + row - 1),
-            COLORREF(0xd0d0d0),
+            COLORREF(0xece2db),
         );
         hits.push((rect(a.left, y, a.right - a.left, row), t.id));
     }
@@ -377,7 +396,7 @@ pub(super) fn paint(
             dc,
             (a.left + name_w, a.top + i * head),
             (a.right, a.top + i * head),
-            COLORREF(0xc0c0c0),
+            COLORREF(0xe3d5cb),
         );
     }
     line(
